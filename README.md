@@ -1,0 +1,2 @@
+# binopy
+Binned optimisation
