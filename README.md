@@ -8,7 +8,7 @@ A Python package for parallelised, binned function optimisation.
 Simply install using `pip`:
 
 ```terminal
-pip install git+https://github.com/anderkve/lorpy.git
+pip install git+https://github.com/anderkve/binopy.git
 ```
 
 
