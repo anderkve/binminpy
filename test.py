@@ -12,7 +12,7 @@ def target_function(x, a):
 
     # sleep(0.5)
     # Waste some time in way that keeps the CPU working
-    for i in range(int(1e7)):
+    for i in range(int(1e6)):
         pass
 
     return result
@@ -25,8 +25,8 @@ def target_function(x, a):
 binning_tuples = [(-3,3,1), (-3,3,1)]  # Currently not used
 
 optimizer_kwargs = {
-    "method": "L-BFGS-B",
-    "tol": 1e-10,
+    # "method": "L-BFGS-B",
+    # "tol": 1e-6,
     "args": (10),
 }
 
@@ -34,7 +34,13 @@ max_processes = 4
 
 binned_opt = BinnedOptimizer(
     target_function, 
-    binning_tuples, 
+    binning_tuples,
+    # optimizer="minimize", 
+    # optimizer="differential_evolution", 
+    optimizer="basinhopping", 
+    # optimizer="shgo", 
+    # optimizer="dual_annealing", 
+    # optimizer="direct", 
     optimizer_kwargs=optimizer_kwargs, 
     max_processes=max_processes,
     return_evaluations=True,
@@ -49,8 +55,8 @@ for i in range(n_bins):
     print()
     print(f"# Result bin {i}:")
     print(f"- optimization result:\n {output['all_results'][i][0]}")
-    print(f"- x vals:\n {output['all_results'][i][1]}")
-    print(f"- y vals:\n {output['all_results'][i][2]}")
+    # print(f"- x vals:\n {output['all_results'][i][1]}")
+    # print(f"- y vals:\n {output['all_results'][i][2]}")
 
 print()
 print()

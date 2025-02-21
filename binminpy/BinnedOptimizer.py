@@ -1,19 +1,20 @@
 import math
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
-from scipy.optimize import minimize, OptimizeResult
+from scipy.optimize import minimize, differential_evolution, basinhopping, shgo, dual_annealing, direct, OptimizeResult
 from copy import copy
 import warnings
 
 
 class BinnedOptimizer:
 
-    def __init__(self, target_function, binning_tuples, optimizer_kwargs={}, max_processes=1, 
+    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
                  return_evaluations=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
         """Constructor"""
 
         self.target_function = target_function
         self.binning_tuples = binning_tuples  # A list on the form [(x1_min, x1_max, n_bins_x1), (x2_min, x2_max, n_bins_x2), ...]
+        self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
         self.max_processes = max_processes
         self.return_evaluations = return_evaluations
@@ -25,9 +26,18 @@ class BinnedOptimizer:
 
         self.print_prefix = "BinnedOptimizer:"
 
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct"]
+        if self.optimizer not in known_optimizers:
+            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
+
         if "bounds" in self.optimizer_kwargs:
             warnings.warn("BinnedOptimizer will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
             del(self.optimizer_kwargs["bounds"])
+
+        # Ensure that self.optimizer_kwargs["args"] is a tuple 
+        if "args" in self.optimizer_kwargs:
+            if not isinstance(self.optimizer_kwargs["args"], tuple):
+                self.optimizer_kwargs["args"] = tuple([self.optimizer_kwargs["args"]])
 
 
     def _worker_function(self, bounds):
@@ -48,23 +58,54 @@ class BinnedOptimizer:
                 y_points.append(y)
             return y
 
-        # Initial point for the optimization
+        # Initial point (for optimizers that need this)
         x0 = np.array([0.5 * (x_min + x_max) for x_min,x_max in bounds])
 
         # Do the optimization and store the result
         res = None
-        try:
-            res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
-        except ValueError as e:
-            warnings.warn(f"{self.print_prefix} Optimization attempt returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
-            use_optimizer_kwargs["method"] = "trust-constr"
-            res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
 
+        if self.optimizer == "minimize":
+
+            try:
+                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+            except ValueError as e:
+                warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                use_optimizer_kwargs["method"] = "trust-constr"
+                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "differential_evolution":
+
+            res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "basinhopping":
+
+            if not "minimizer_kwargs" in use_optimizer_kwargs:
+                use_optimizer_kwargs["minimizer_kwargs"] = {}
+            use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
+
+            if "args" in use_optimizer_kwargs:
+                use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
+                del(use_optimizer_kwargs["args"])
+
+            res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
+
+        elif self.optimizer == "shgo":
+
+            res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "dual_annealing":
+
+            res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "direct":
+
+            res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        # Now return result
         if self.return_evaluations:
             return res, np.array(x_points), np.array(y_points)
         else:
             return res
-
 
 
     def run(self):
@@ -86,20 +127,20 @@ class BinnedOptimizer:
             [(-2,2), (4,6)],
             [(-2,2), (6,8)],
 
-            [(-2,2), (-2,2)], 
-            [(-2,2), (2,4)], 
-            [(-2,2), (4,6)],
-            [(-2,2), (6,8)],
+            # [(-2,2), (-2,2)], 
+            # [(-2,2), (2,4)], 
+            # [(-2,2), (4,6)],
+            # [(-2,2), (6,8)],
 
-            [(-2,2), (-2,2)], 
-            [(-2,2), (2,4)], 
-            [(-2,2), (4,6)],
-            [(-2,2), (6,8)],
+            # [(-2,2), (-2,2)], 
+            # [(-2,2), (2,4)], 
+            # [(-2,2), (4,6)],
+            # [(-2,2), (6,8)],
 
-            [(-2,2), (-2,2)], 
-            [(-2,2), (2,4)], 
-            [(-2,2), (4,6)],
-            [(-2,2), (6,8)],
+            # [(-2,2), (-2,2)], 
+            # [(-2,2), (2,4)], 
+            # [(-2,2), (4,6)],
+            # [(-2,2), (6,8)],
         ]
 
         n_bins = len(all_bounds)
