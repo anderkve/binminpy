@@ -1,5 +1,5 @@
 import numpy as np
-from binopy.BinnedOptimizer import BinnedOptimizer
+from binminpy.BinnedOptimizer import BinnedOptimizer
 from time import sleep
 
 #

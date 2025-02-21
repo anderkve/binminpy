@@ -1,6 +1,6 @@
-# binopy
+# binminpy
 
-A Python package for parallelised, binned function optimisation.
+A Python package for binned and parallelised function optimisation.
 
 
 ## Installation
@@ -8,7 +8,7 @@ A Python package for parallelised, binned function optimisation.
 Simply install using `pip`:
 
 ```terminal
-pip install git+https://github.com/anderkve/binopy.git
+pip install git+https://github.com/anderkve/binminpy.git
 ```
 
 

@@ -1,6 +1,6 @@
 """
-binopy
-======
+binminpy
+========
 
 A package for parallelised, binned function optimisation.
 """

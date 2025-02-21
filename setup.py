@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="binopy",
+    name="binminpy",
     version="0.1.0",
-    description="A package for parallelised, binned function optimisation.",
+    description="A package for binned and parallelised function optimisation.",
     author="Anders Kvellestad",
     author_email="anders.kvellestad@fys.uio.no",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/anderkve/binopy",
+    url="https://github.com/anderkve/binminpy",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
