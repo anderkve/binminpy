@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import minimize, OptimizeResult
@@ -7,7 +8,8 @@ import warnings
 
 class BinnedOptimizer:
 
-    def __init__(self, target_function, binning_tuples, optimizer_kwargs={}, max_processes=1, return_evaluations=False):
+    def __init__(self, target_function, binning_tuples, optimizer_kwargs={}, max_processes=1, 
+                 return_evaluations=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
         """Constructor"""
 
         self.target_function = target_function
@@ -15,6 +17,8 @@ class BinnedOptimizer:
         self.optimizer_kwargs = optimizer_kwargs
         self.max_processes = max_processes
         self.return_evaluations = return_evaluations
+        self.optima_comparison_rtol = optima_comparison_rtol
+        self.optima_comparison_atol = optima_comparison_atol
 
         self.n_dims = len(binning_tuples)
         self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
@@ -100,7 +104,13 @@ class BinnedOptimizer:
 
         n_bins = len(all_bounds)
 
-        collected_outputs = [None] * n_bins
+        output = {
+            "x_opt": None,
+            "y_opt": None,
+            "opt_bins": None,
+            "all_results": [None] * n_bins
+        }
+        
 
         # Use ProcessPoolExecutor for parallel execution
         with ProcessPoolExecutor(max_workers=self.max_processes) as executor:
@@ -109,9 +119,36 @@ class BinnedOptimizer:
             task_mapping = executor.map(self._worker_function, all_bounds)
 
             # Now execute the tasks in parallel and collect the results 
-            for bin_id, result in enumerate(task_mapping):
-                collected_outputs[bin_id] = result
-                print(f"{self.print_prefix} Task {bin_id} is done.", flush=True)
+            for bin_index, result in enumerate(task_mapping):
+                output["all_results"][bin_index] = result
+                print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
 
-        return collected_outputs
+        # Identify the global optima
+        x_opt = []
+        y_opt = [float('inf')]
+        opt_bins = []
+        for bin_index in range(n_bins):
+
+            bin_result = None
+            if self.return_evaluations:
+                bin_result = output["all_results"][bin_index][0]
+            else:
+                bin_result = output["all_results"][bin_index]
+
+            if bin_result is not None:
+                if bin_result.fun < y_opt[0]:
+                    x_opt = [bin_result.x]
+                    y_opt = [bin_result.fun]
+                    opt_bins = [bin_index]
+                elif math.isclose(bin_result.fun, y_opt[0], rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                    x_opt.append(bin_result.x)
+                    y_opt.append(bin_result.fun)
+                    opt_bins.append(bin_index)
+
+        output["x_opt"] = x_opt
+        output["y_opt"] = y_opt
+        output["opt_bins"] = opt_bins
+
+        # We're done here
+        return output
 

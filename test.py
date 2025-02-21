@@ -40,18 +40,31 @@ binned_opt = BinnedOptimizer(
     return_evaluations=True,
 )
 
-collected_outputs = binned_opt.run()
+output = binned_opt.run()
 
 print()
 
-n_bins = len(collected_outputs)
+n_bins = len(output["all_results"])
 for i in range(n_bins):
     print()
-    print(f"Result bin {i}:")
-    print(f"- optimization result:\n {collected_outputs[i][0]}")
-    print(f"- x vals:\n {collected_outputs[i][1]}")
-    print(f"- y vals:\n {collected_outputs[i][2]}")
+    print(f"# Result bin {i}:")
+    print(f"- optimization result:\n {output['all_results'][i][0]}")
+    print(f"- x vals:\n {output['all_results'][i][1]}")
+    print(f"- y vals:\n {output['all_results'][i][2]}")
 
 print()
+print()
+
+best_bins = output["opt_bins"]
+print(f"# Global optima found in bin(s) {best_bins}:")
+for i,bin_index in enumerate(best_bins):
+    print(f"- Bin {bin_index}:")
+    print(f"  - x: {output['x_opt'][i]}")
+    print(f"  - y: {output['y_opt'][i]}")
+
+print()
+
+
+
 
 
