@@ -67,7 +67,7 @@ class BinnedOptimizer:
         # Wrapper for the target function, to allow us to save the evaluations
         def target_function_wrapper(x, *args):
             y = self.target_function(x, *args)
-            print(f"{self.print_prefix} target_function_wrapper:  x: {x}  args: {args}  y: {y}")
+            # print(f"{self.print_prefix} target_function_wrapper:  x: {x}  args: {args}  y: {y}")
             if self.return_evals:
                 x_points.append(x)
                 y_points.append(y)

@@ -40,10 +40,11 @@ def target_function(x, a):
 # Test setup
 #
 
-n_bins_per_dim = 100
+n_bins_per_dim = 60
 # binning_tuples = [(-2.5, 2.5, 5)]*3
 # binning_tuples = [(-6.0, 6.0, n_bins_per_dim)]*2
-binning_tuples = [(-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, 1), (-6.0, 6.0, 1)]
+binning_tuples = [(-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, 2)]
+# binning_tuples = [(-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, 2), (-6.0, 6.0, 2)]
 # print(binning_tuples)
 # binning_tuples = [(-2.9, -2.7, 1), (3.1, 3.2, 1)]
 n_dims = len(binning_tuples)
@@ -51,7 +52,7 @@ n_dims = len(binning_tuples)
 
 optimizer_kwargs = {
     "method": "L-BFGS-B",
-    "tol": 1e-12,
+    "tol": 1e-9,
     "args": (10),
 }
 
@@ -83,8 +84,6 @@ for i,bin_index_tuple in enumerate(output["bin_order"]):
     print(f"# Result for bin {bin_index_tuple} (all_optimizer_results[{i}]):")
     print(f"- bin limits: {binned_opt.get_bin_limits(bin_index_tuple)}")
     print(f"- optimization result:\n {output['all_optimizer_results'][i]}")
-    # print(f"- x vals:\n {output['all_evals'][i][1]}")
-    # print(f"- y vals:\n {output['all_evals'][i][2]}")
 
 print()
 print()
@@ -123,8 +122,9 @@ data["neg_loglike"] = np.log(y_points + np.abs(np.min(y_points)) + 1.0)
 data["loglike"] = -1.0 * data["neg_loglike"]
 
 # confidence_levels = [0.683, 0.954]
-confidence_levels = []
-likelihood_ratio_contour_values = plot_utils.get_2D_likelihood_ratio_levels(confidence_levels)
+# likelihood_ratio_contour_values = plot_utils.get_2D_likelihood_ratio_levels(confidence_levels)
+max_loglike = np.max(data["loglike"])
+contour_levels = [max_loglike - i for i in range(5)]
 
 # Plot variables
 x_key = "x0"
@@ -171,27 +171,15 @@ fig, ax, cbar_ax = plot_utils.plot_2D_profile(
     labels, 
     xy_bins, 
     xy_bounds=xy_bounds, 
-    # z_is_loglike=True,
     z_is_loglike=False,
     plot_likelihood_ratio=False,
-    contour_levels=likelihood_ratio_contour_values,
+    # contour_levels=likelihood_ratio_contour_values,
+    contour_levels=contour_levels,
     contour_coordinates_output_file=f"./plots/2D_profile__{x_key}__{y_key}__{z_key}__coordinates.csv",
     z_fill_value = -1*np.finfo(float).max,
     add_max_likelihood_marker = True,
     plot_settings=plot_settings,
 )
-
-# Add text
-# fig.text(0.525, 0.350, "Example text", ha="left", va="center", fontsize=plot_settings["fontsize"], color="white")
-
-# # Add anything else to the plot, e.g. some more lines and labels and stuff
-# ax.plot([20.0, 30.0], [5.0, 3.0], color="white", linewidth=plot_settings["contour_linewidth"], linestyle="dashed")
-# fig.text(0.53, 0.79, "A very important line!", ha="left", va="center", rotation=-31.5, fontsize=plot_settings["fontsize"]-5, color="white")
-
-# # Draw a contour using coordinates stored in a .csv file
-# x_contour, y_contour = np.loadtxt("./example_data/contour_coordinates.csv", delimiter=",", usecols=(0, 1), unpack=True)
-# ax.plot(x_contour, y_contour, color="orange", linestyle="dashed", linewidth=plot_settings["contour_linewidth"], alpha=0.7)
-# fig.text(0.23, 0.23, "Overlaid contour from\n coordinates in some data file", ha="left", va="center", fontsize=plot_settings["fontsize"]-5, color="orange")
 
 # Save to file
 output_path = f"./plots/2D_profile__{x_key}__{y_key}__{z_key}.pdf"
