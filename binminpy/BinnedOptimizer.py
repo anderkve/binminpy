@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import minimize, differential_evolution, basinhopping, shgo, dual_annealing, direct, OptimizeResult
 from copy import copy
 import warnings
+import itertools
 
 
 class BinnedOptimizer:
@@ -23,6 +24,9 @@ class BinnedOptimizer:
 
         self.n_dims = len(binning_tuples)
         self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
+        self.n_bins = np.prod([self.n_bins_per_dim])
+        self.bin_limits_per_dim = [np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1) for d in range(self.n_dims)]
+        self.all_bin_index_tuples = list(itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)]))
 
         self.print_prefix = "BinnedOptimizer:"
 
@@ -40,8 +44,19 @@ class BinnedOptimizer:
                 self.optimizer_kwargs["args"] = tuple([self.optimizer_kwargs["args"]])
 
 
-    def _worker_function(self, bounds):
+    def get_bin_limits(self, bin_index_tuple):
+        bounds = []
+        for d in range(self.n_dims):
+            index_d = bin_index_tuple[d]
+            # Add a tuple (x_d_min, x_d_max) for dimension d
+            bounds.append((self.bin_limits_per_dim[d][index_d], self.bin_limits_per_dim[d][index_d+1]))
+        return bounds
+
+
+    def _worker_function(self, bin_index_tuple):
         """Function to optimize the target function within a set of bounds"""
+
+        bounds = self.get_bin_limits(bin_index_tuple)
 
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
 
@@ -111,45 +126,12 @@ class BinnedOptimizer:
     def run(self):
         """Start the optimization"""
 
-        # Do the binning of the input space:
-        # 
-        # - Each bin needs
-        #   1) a unique index
-        #   2) a corresponding bounds list with the bin limits in each direction
-        # 
-        # - Save this in a list called "all_bounds", such that all_bounds[i]
-        #   contains the bounds corresponding to bin i
-
-        # Dummy example for a 2D function:
-        all_bounds = [
-            [(-2,2), (-2,2)], 
-            [(-2,2), (2,4)], 
-            [(-2,2), (4,6)],
-            [(-2,2), (6,8)],
-
-            # [(-2,2), (-2,2)], 
-            # [(-2,2), (2,4)], 
-            # [(-2,2), (4,6)],
-            # [(-2,2), (6,8)],
-
-            # [(-2,2), (-2,2)], 
-            # [(-2,2), (2,4)], 
-            # [(-2,2), (4,6)],
-            # [(-2,2), (6,8)],
-
-            # [(-2,2), (-2,2)], 
-            # [(-2,2), (2,4)], 
-            # [(-2,2), (4,6)],
-            # [(-2,2), (6,8)],
-        ]
-
-        n_bins = len(all_bounds)
-
         output = {
             "x_opt": None,
             "y_opt": None,
             "opt_bins": None,
-            "all_results": [None] * n_bins
+            "bin_order": self.all_bin_index_tuples,
+            "all_results": [None] * self.n_bins
         }
         
 
@@ -157,7 +139,7 @@ class BinnedOptimizer:
         with ProcessPoolExecutor(max_workers=self.max_processes) as executor:
 
             # Create a generator for all the tasks
-            task_mapping = executor.map(self._worker_function, all_bounds)
+            task_mapping = executor.map(self._worker_function, self.all_bin_index_tuples)
 
             # Now execute the tasks in parallel and collect the results 
             for bin_index, result in enumerate(task_mapping):
@@ -168,7 +150,7 @@ class BinnedOptimizer:
         x_opt = []
         y_opt = [float('inf')]
         opt_bins = []
-        for bin_index in range(n_bins):
+        for bin_index in range(self.n_bins):
 
             bin_result = None
             if self.return_evaluations:
@@ -180,11 +162,11 @@ class BinnedOptimizer:
                 if bin_result.fun < y_opt[0]:
                     x_opt = [bin_result.x]
                     y_opt = [bin_result.fun]
-                    opt_bins = [bin_index]
+                    opt_bins = [self.all_bin_index_tuples[bin_index]]
                 elif math.isclose(bin_result.fun, y_opt[0], rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
                     x_opt.append(bin_result.x)
                     y_opt.append(bin_result.fun)
-                    opt_bins.append(bin_index)
+                    opt_bins.append(self.all_bin_index_tuples[bin_index])
 
         output["x_opt"] = x_opt
         output["y_opt"] = y_opt
