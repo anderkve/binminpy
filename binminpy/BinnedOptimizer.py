@@ -10,7 +10,7 @@ import itertools
 class BinnedOptimizer:
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
-                 return_evaluations=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
+                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
         """Constructor"""
 
         self.target_function = target_function
@@ -18,7 +18,7 @@ class BinnedOptimizer:
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
         self.max_processes = max_processes
-        self.return_evaluations = return_evaluations
+        self.return_evals = return_evals
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
 
@@ -68,7 +68,7 @@ class BinnedOptimizer:
         def target_function_wrapper(x, *args):
             y = self.target_function(x, *args)
             print(f"{self.print_prefix} target_function_wrapper:  x: {x}  args: {args}  y: {y}")
-            if self.return_evaluations:
+            if self.return_evals:
                 x_points.append(x)
                 y_points.append(y)
             return y
@@ -117,7 +117,7 @@ class BinnedOptimizer:
             res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         # Now return result
-        if self.return_evaluations:
+        if self.return_evals:
             return res, np.array(x_points), np.array(y_points)
         else:
             return res
@@ -127,11 +127,14 @@ class BinnedOptimizer:
         """Start the optimization"""
 
         output = {
-            "x_opt": None,
-            "y_opt": None,
-            "opt_bins": None,
+            "x_optimal": None,
+            "y_optimal": None,
+            "optimal_bins": None,
             "bin_order": self.all_bin_index_tuples,
-            "all_results": [None] * self.n_bins
+            "all_optimizer_results": [None] * self.n_bins,
+            # "all_evals": [None] * self.n_bins,
+            "x_evals": np.zeros((0, self.n_dims)),
+            "y_evals": np.array([]),
         }
         
 
@@ -142,35 +145,40 @@ class BinnedOptimizer:
             task_mapping = executor.map(self._worker_function, self.all_bin_index_tuples)
 
             # Now execute the tasks in parallel and collect the results 
-            for bin_index, result in enumerate(task_mapping):
-                output["all_results"][bin_index] = result
+            for bin_index, worker_output in enumerate(task_mapping):
+                if self.return_evals:
+                    opt_results, x_points, y_points = worker_output
+                    output["all_optimizer_results"][bin_index] = opt_results
+                    # output["all_evals"][bin_index] = (x_points, y_points)
+                    output["x_evals"] = np.vstack((output["x_evals"], x_points))
+                    output["y_evals"] = np.hstack((output["y_evals"], y_points))
+                else:
+                    output["all_optimizer_results"][bin_index] = worker_output
                 print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
+
+
 
         # Identify the global optima
         x_opt = []
         y_opt = [float('inf')]
-        opt_bins = []
+        optimal_bins = []
         for bin_index in range(self.n_bins):
 
-            bin_result = None
-            if self.return_evaluations:
-                bin_result = output["all_results"][bin_index][0]
-            else:
-                bin_result = output["all_results"][bin_index]
+            bin_opt_result = output["all_optimizer_results"][bin_index]
 
-            if bin_result is not None:
-                if bin_result.fun < y_opt[0]:
-                    x_opt = [bin_result.x]
-                    y_opt = [bin_result.fun]
-                    opt_bins = [self.all_bin_index_tuples[bin_index]]
-                elif math.isclose(bin_result.fun, y_opt[0], rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
-                    x_opt.append(bin_result.x)
-                    y_opt.append(bin_result.fun)
-                    opt_bins.append(self.all_bin_index_tuples[bin_index])
+            if bin_opt_result is not None:
+                if bin_opt_result.fun < y_opt[0]:
+                    x_opt = [bin_opt_result.x]
+                    y_opt = [bin_opt_result.fun]
+                    optimal_bins = [self.all_bin_index_tuples[bin_index]]
+                elif math.isclose(bin_opt_result.fun, y_opt[0], rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                    x_opt.append(bin_opt_result.x)
+                    y_opt.append(bin_opt_result.fun)
+                    optimal_bins.append(self.all_bin_index_tuples[bin_index])
 
-        output["x_opt"] = x_opt
-        output["y_opt"] = y_opt
-        output["opt_bins"] = opt_bins
+        output["x_optimal"] = x_opt
+        output["y_optimal"] = y_opt
+        output["optimal_bins"] = optimal_bins
 
         # We're done here
         return output
