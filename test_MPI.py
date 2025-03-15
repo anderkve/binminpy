@@ -1,0 +1,36 @@
+from binminpy.BinnedOptimizerMPI import BinnedOptimizerMPI
+import numpy as np
+
+# Define a simple target function.
+def target_function(x):
+    # A quadratic function with a minimum at [1, 2].
+    return (x[0] - 1) ** 2 + (x[1] - 2) ** 2
+
+if __name__ == "__main__":
+    # Define binning for two dimensions.
+    # For example, the first dimension ranges from 0 to 2 split into 4 bins,
+    # and the second from 0 to 4 split into 4 bins.
+    binning_tuples = [(0, 2, 4), (0, 4, 4)]
+
+    # Specify the optimizer and any kwargs.
+    optimizer = "minimize"
+    optimizer_kwargs = {"method": "L-BFGS-B"}
+
+    # Instantiate the BinnedOptimizerMPI.
+    bo = BinnedOptimizerMPI(
+        target_function,
+        binning_tuples,
+        optimizer=optimizer,
+        optimizer_kwargs=optimizer_kwargs,
+        return_evals=True
+    )
+
+    # Run the optimization.
+    result = bo.run()
+
+    # Only rank 0 will have the complete result.
+    if result is not None:
+        print("Optimization Result:")
+        print("Optimal x:", result["x_optimal"])
+        print("Optimal y:", result["y_optimal"])
+        print("Optimal bins:", result["optimal_bins"])

@@ -1,0 +1,193 @@
+import math
+import numpy as np
+from scipy.optimize import (
+    minimize,
+    differential_evolution,
+    basinhopping,
+    shgo,
+    dual_annealing,
+    direct,
+    OptimizeResult
+)
+from copy import copy
+import warnings
+import itertools
+from mpi4py import MPI
+
+
+class BinnedOptimizerMPI:
+    def __init__(self, target_function, binning_tuples, optimizer="minimize",
+                 optimizer_kwargs={}, return_evals=False,
+                 optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
+        """Constructor"""
+        self.target_function = target_function
+        self.binning_tuples = binning_tuples  # [(x1_min, x1_max, n_bins_x1), (x2_min, x2_max, n_bins_x2), ...]
+        self.optimizer = optimizer
+        self.optimizer_kwargs = optimizer_kwargs
+        self.return_evals = return_evals
+        self.optima_comparison_rtol = optima_comparison_rtol
+        self.optima_comparison_atol = optima_comparison_atol
+
+        self.n_dims = len(binning_tuples)
+        self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
+        self.n_bins = np.prod(self.n_bins_per_dim)
+        self.bin_limits_per_dim = [
+            np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1)
+            for d in range(self.n_dims)
+        ]
+        self.all_bin_index_tuples = list(
+            itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)])
+        )
+
+        self.print_prefix = "BinnedOptimizerMPI:"
+
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct"]
+        if self.optimizer not in known_optimizers:
+            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
+
+        if "bounds" in self.optimizer_kwargs:
+            warnings.warn("BinnedOptimizerMPI will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+            del(self.optimizer_kwargs["bounds"])
+
+        # Ensure that optimizer_kwargs["args"] is a tuple 
+        if "args" in self.optimizer_kwargs:
+            if not isinstance(self.optimizer_kwargs["args"], tuple):
+                self.optimizer_kwargs["args"] = (self.optimizer_kwargs["args"],)
+
+    def get_bin_limits(self, bin_index_tuple):
+        bounds = []
+        for d in range(self.n_dims):
+            index_d = bin_index_tuple[d]
+            bounds.append((self.bin_limits_per_dim[d][index_d], self.bin_limits_per_dim[d][index_d+1]))
+        return bounds
+
+    def _worker_function(self, bin_index_tuple):
+        """Optimize the target function within the bounds corresponding to bin_index_tuple."""
+        bounds = self.get_bin_limits(bin_index_tuple)
+        use_optimizer_kwargs = copy(self.optimizer_kwargs)
+
+        # Containers to store function evaluations if requested
+        x_points = []
+        y_points = []
+
+        # Wrapper to record function evaluations
+        def target_function_wrapper(x, *args):
+            y = self.target_function(x, *args)
+            if self.return_evals:
+                x_points.append(x)
+                y_points.append(y)
+            return y
+
+        # Initial point for optimizers that require one
+        x0 = np.array([0.5 * (x_min + x_max) for x_min, x_max in bounds])
+        res = None
+
+        if self.optimizer == "minimize":
+            try:
+                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+            except ValueError as e:
+                warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                use_optimizer_kwargs["method"] = "trust-constr"
+                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "differential_evolution":
+            res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "basinhopping":
+            if "minimizer_kwargs" not in use_optimizer_kwargs:
+                use_optimizer_kwargs["minimizer_kwargs"] = {}
+            use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
+            if "args" in use_optimizer_kwargs:
+                use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
+                del(use_optimizer_kwargs["args"])
+            res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
+
+        elif self.optimizer == "shgo":
+            res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "dual_annealing":
+            res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "direct":
+            res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        if self.return_evals:
+            return res, np.array(x_points), np.array(y_points)
+        else:
+            return res
+
+    def run(self):
+        """Distribute the optimization tasks via MPI and collect results on rank 0."""
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
+        # Distribute tasks: each task corresponds to a bin.
+        my_indices = []
+        my_tasks = []
+        for idx, bin_index in enumerate(self.all_bin_index_tuples):
+            if idx % size == rank:
+                my_indices.append(idx)
+                my_tasks.append(bin_index)
+
+        # Each process computes its assigned tasks.
+        my_results = {}
+        for idx, task in zip(my_indices, my_tasks):
+            result = self._worker_function(task)
+            my_results[idx] = result
+            print(f"{self.print_prefix} Rank {rank}: Task {idx} is done.", flush=True)
+
+        # Gather all results at rank 0.
+        gathered_results = comm.gather(my_results, root=0)
+
+        if rank == 0:
+            all_optimizer_results = [None] * self.n_bins
+            x_evals_list = []
+            y_evals_list = []
+            for proc_dict in gathered_results:
+                for idx, result in proc_dict.items():
+                    if self.return_evals:
+                        opt_result, x_points, y_points = result
+                        all_optimizer_results[idx] = opt_result
+                        x_evals_list.append(x_points)
+                        y_evals_list.append(y_points)
+                    else:
+                        all_optimizer_results[idx] = result
+
+            if self.return_evals:
+                x_evals = np.vstack(x_evals_list) if x_evals_list else np.zeros((0, self.n_dims))
+                y_evals = np.hstack(y_evals_list) if y_evals_list else np.array([])
+            else:
+                x_evals = np.zeros((0, self.n_dims))
+                y_evals = np.array([])
+
+            # Identify the global optimum.
+            x_opt = []
+            y_opt = [float('inf')]
+            optimal_bins = []
+            for idx in range(self.n_bins):
+                bin_opt_result = all_optimizer_results[idx]
+                if bin_opt_result is not None:
+                    if bin_opt_result.fun < y_opt[0]:
+                        x_opt = [bin_opt_result.x]
+                        y_opt = [bin_opt_result.fun]
+                        optimal_bins = [self.all_bin_index_tuples[idx]]
+                    elif math.isclose(bin_opt_result.fun, y_opt[0],
+                                        rel_tol=self.optima_comparison_rtol,
+                                        abs_tol=self.optima_comparison_atol):
+                        x_opt.append(bin_opt_result.x)
+                        y_opt.append(bin_opt_result.fun)
+                        optimal_bins.append(self.all_bin_index_tuples[idx])
+
+            output = {
+                "x_optimal": x_opt,
+                "y_optimal": y_opt,
+                "optimal_bins": optimal_bins,
+                "bin_order": self.all_bin_index_tuples,
+                "all_optimizer_results": all_optimizer_results,
+                "x_evals": x_evals,
+                "y_evals": y_evals,
+            }
+            return output
+        else:
+            return None
