@@ -38,8 +38,6 @@ class BinnedOptimizerMPI(BinnedOptimizer):
     def run_even_task_distribution(self):
         """Run the optimization using an even distribution of batched tasks across MPI processes.
 
-        Parameters:
-          n_tasks_per_batch: Number of tasks to assign per batch.
         Returns:
           On rank 0: a dictionary containing global optimization results.
           On other ranks: None.
@@ -134,57 +132,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         rank = comm.Get_rank()
         size = comm.Get_size()
 
-        # Sequential fallback for one process.
+        # If only one MPI process, fall back to run_even_task_distribution
         if size == 1:
-            all_optimizer_results = [None] * self.n_bins
-            x_evals_list = []
-            y_evals_list = []
-            for idx, task in enumerate(self.all_bin_index_tuples):
-                result = self._worker_function(task)
-                if self.return_evals:
-                    opt_result, x_points, y_points = result
-                    all_optimizer_results[idx] = opt_result
-                    x_evals_list.append(x_points)
-                    y_evals_list.append(y_points)
-                else:
-                    all_optimizer_results[idx] = result
-                print(f"{self.print_prefix} Task {idx} is done.", flush=True)
-            if self.return_evals:
-                x_evals = np.vstack(x_evals_list) if x_evals_list else np.zeros((0, self.n_dims))
-                y_evals = np.hstack(y_evals_list) if y_evals_list else np.array([])
-            else:
-                x_evals = np.zeros((0, self.n_dims))
-                y_evals = np.array([])
+            return self.run_even_task_distribution()
 
-            # Determine the global optimum.
-            x_opt = []
-            y_opt = [float('inf')]
-            optimal_bins = []
-            for idx in range(self.n_bins):
-                bin_opt_result = all_optimizer_results[idx]
-                if bin_opt_result is not None:
-                    if bin_opt_result.fun < y_opt[0]:
-                        x_opt = [bin_opt_result.x]
-                        y_opt = [bin_opt_result.fun]
-                        optimal_bins = [self.all_bin_index_tuples[idx]]
-                    elif math.isclose(bin_opt_result.fun, y_opt[0],
-                                        rel_tol=self.optima_comparison_rtol,
-                                        abs_tol=self.optima_comparison_atol):
-                        x_opt.append(bin_opt_result.x)
-                        y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(self.all_bin_index_tuples[idx])
-            output = {
-                "x_optimal": x_opt,
-                "y_optimal": y_opt,
-                "optimal_bins": optimal_bins,
-                "bin_order": self.all_bin_index_tuples,
-                "all_optimizer_results": all_optimizer_results,
-                "x_evals": x_evals,
-                "y_evals": y_evals,
-            }
-            return output
-
-        # For size > 1, use a master-worker pattern.
+        # If multiple MPI processes, use a master-worker pattern.
         TASK_TAG = 1
         RESULT_TAG = 2
 

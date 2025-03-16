@@ -1,7 +1,15 @@
 import math
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
-from scipy.optimize import minimize, differential_evolution, basinhopping, shgo, dual_annealing, direct, OptimizeResult
+from scipy.optimize import (
+    minimize,
+    differential_evolution,
+    basinhopping,
+    shgo,
+    dual_annealing,
+    direct,
+    OptimizeResult
+)
 from copy import copy
 import warnings
 import itertools
