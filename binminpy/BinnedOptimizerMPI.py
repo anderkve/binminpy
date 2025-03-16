@@ -36,7 +36,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
 
     def run_even_task_distribution(self):
-        """Run the optimization using an even distribution of batched tasks across MPI processes.
+        """Run the optimization using an even distribution of tasks across MPI processes.
 
         Returns:
           On rank 0: a dictionary containing global optimization results.
