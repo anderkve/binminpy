@@ -1,7 +1,14 @@
 import math
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor
-from scipy.optimize import minimize, differential_evolution, basinhopping, shgo, dual_annealing, direct, OptimizeResult
+from scipy.optimize import (
+    minimize,
+    differential_evolution,
+    basinhopping,
+    shgo,
+    dual_annealing,
+    direct,
+    OptimizeResult
+)
 from copy import copy
 import warnings
 import itertools
@@ -9,15 +16,23 @@ import itertools
 
 class BinnedOptimizer:
 
-    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
+    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
                  return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
-        """Constructor"""
+        """Constructor.
+
+        Parameters:
+          target_function: function to optimize.
+          binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
+          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct"].
+          optimizer_kwargs: additional keyword arguments for the optimizer.
+          return_evals: if True, record evaluations.
+          optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
+        """
 
         self.target_function = target_function
-        self.binning_tuples = binning_tuples  # A list on the form [(x1_min, x1_max, n_bins_x1), (x2_min, x2_max, n_bins_x2), ...]
+        self.binning_tuples = binning_tuples
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
-        self.max_processes = max_processes
         self.return_evals = return_evals
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
@@ -45,6 +60,7 @@ class BinnedOptimizer:
 
 
     def get_bin_limits(self, bin_index_tuple):
+        """Get the bin limits corresponding to a tuple of per-dimension bin indices."""
         bounds = []
         for d in range(self.n_dims):
             index_d = bin_index_tuple[d]
@@ -55,19 +71,15 @@ class BinnedOptimizer:
 
     def _worker_function(self, bin_index_tuple):
         """Function to optimize the target function within a set of bounds"""
-
         bounds = self.get_bin_limits(bin_index_tuple)
-
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
 
-        # Lists to store function evaluations
         x_points = []
         y_points = []
 
         # Wrapper for the target function, to allow us to save the evaluations
         def target_function_wrapper(x, *args):
             y = self.target_function(x, *args)
-            # print(f"{self.print_prefix} target_function_wrapper:  x: {x}  args: {args}  y: {y}")
             if self.return_evals:
                 x_points.append(x)
                 y_points.append(y)
@@ -80,7 +92,6 @@ class BinnedOptimizer:
         res = None
 
         if self.optimizer == "minimize":
-
             try:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
             except ValueError as e:
@@ -89,34 +100,26 @@ class BinnedOptimizer:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "differential_evolution":
-
             res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "basinhopping":
-
             if not "minimizer_kwargs" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"] = {}
             use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
-
             if "args" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
                 del(use_optimizer_kwargs["args"])
-
             res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
 
         elif self.optimizer == "shgo":
-
             res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "dual_annealing":
-
             res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "direct":
-
             res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        # Now return result
         if self.return_evals:
             return res, np.array(x_points), np.array(y_points)
         else:
@@ -132,31 +135,21 @@ class BinnedOptimizer:
             "optimal_bins": None,
             "bin_order": self.all_bin_index_tuples,
             "all_optimizer_results": [None] * self.n_bins,
-            # "all_evals": [None] * self.n_bins,
             "x_evals": np.zeros((0, self.n_dims)),
             "y_evals": np.array([]),
         }
         
-
-        # Use ProcessPoolExecutor for parallel execution
-        with ProcessPoolExecutor(max_workers=self.max_processes) as executor:
-
-            # Create a generator for all the tasks
-            task_mapping = executor.map(self._worker_function, self.all_bin_index_tuples)
-
-            # Now execute the tasks in parallel and collect the results 
-            for bin_index, worker_output in enumerate(task_mapping):
-                if self.return_evals:
-                    opt_results, x_points, y_points = worker_output
-                    output["all_optimizer_results"][bin_index] = opt_results
-                    # output["all_evals"][bin_index] = (x_points, y_points)
-                    output["x_evals"] = np.vstack((output["x_evals"], x_points))
-                    output["y_evals"] = np.hstack((output["y_evals"], y_points))
-                else:
-                    output["all_optimizer_results"][bin_index] = worker_output
-                print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
-
-
+        # Carry out all the tasks in serial
+        for bin_index, bin_index_tuple in enumerate(self.all_bin_index_tuples):
+            worker_output = self._worker_function(bin_index_tuple)
+            if self.return_evals:
+                opt_results, x_points, y_points = worker_output
+                output["all_optimizer_results"][bin_index] = opt_results
+                output["x_evals"] = np.vstack((output["x_evals"], x_points))
+                output["y_evals"] = np.hstack((output["y_evals"], y_points))
+            else:
+                output["all_optimizer_results"][bin_index] = worker_output
+            print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
 
         # Identify the global optima
         x_opt = []

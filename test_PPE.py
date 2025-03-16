@@ -1,5 +1,5 @@
 import numpy as np
-from binminpy.BinnedOptimizer import BinnedOptimizer
+from binminpy.BinnedOptimizerPPE import BinnedOptimizerPPE
 
 
 def target_function(x):
@@ -24,12 +24,13 @@ if __name__ == "__main__":
         "tol": 1e-9,
     }
 
-    # Instantiate the BinnedOptimizer.
-    binned_opt = BinnedOptimizer(
+    # Instantiate the BinnedOptimizerPPE.
+    binned_opt = BinnedOptimizerPPE(
         target_function,
         binning_tuples,
         optimizer=optimizer,
         optimizer_kwargs=optimizer_kwargs,
+        max_processes = 4,    # Use 4 parallel processes
         return_evals=True,
         optima_comparison_rtol=1e-6,
         optima_comparison_atol=1e-2
