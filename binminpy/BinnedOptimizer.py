@@ -22,7 +22,7 @@ class BinnedOptimizer:
         """
 
         self.target_function = target_function
-        self.binning_tuples = binning_tuples  # A list on the form [(x1_min, x1_max, n_bins_x1), (x2_min, x2_max, n_bins_x2), ...]
+        self.binning_tuples = binning_tuples
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
         self.return_evals = return_evals
@@ -52,6 +52,7 @@ class BinnedOptimizer:
 
 
     def get_bin_limits(self, bin_index_tuple):
+        """Get the bin limits corresponding to a tuple of per-dimension bin indices."""
         bounds = []
         for d in range(self.n_dims):
             index_d = bin_index_tuple[d]
@@ -65,7 +66,6 @@ class BinnedOptimizer:
         bounds = self.get_bin_limits(bin_index_tuple)
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
 
-        # Lists to store function evaluations
         x_points = []
         y_points = []
 
@@ -118,7 +118,6 @@ class BinnedOptimizer:
             return res
 
 
-    # TODO: Turn into non-parallel version
     def run(self):
         """Start the optimization"""
 
@@ -128,7 +127,6 @@ class BinnedOptimizer:
             "optimal_bins": None,
             "bin_order": self.all_bin_index_tuples,
             "all_optimizer_results": [None] * self.n_bins,
-            # "all_evals": [None] * self.n_bins,
             "x_evals": np.zeros((0, self.n_dims)),
             "y_evals": np.array([]),
         }

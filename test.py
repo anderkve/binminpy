@@ -40,7 +40,7 @@ def target_function(x, a):
 # Test setup
 #
 
-n_bins_per_dim = 60
+n_bins_per_dim = 5
 # binning_tuples = [(-2.5, 2.5, 5)]*3
 # binning_tuples = [(-6.0, 6.0, n_bins_per_dim)]*2
 binning_tuples = [(-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, n_bins_per_dim), (-6.0, 6.0, 2)]
@@ -56,7 +56,7 @@ optimizer_kwargs = {
     "args": (10),
 }
 
-max_processes = 10
+# max_processes = 10
 
 binned_opt = BinnedOptimizer(
     target_function, 
@@ -68,7 +68,7 @@ binned_opt = BinnedOptimizer(
     # optimizer="dual_annealing", 
     # optimizer="direct", 
     optimizer_kwargs=optimizer_kwargs, 
-    max_processes=max_processes,
+    # max_processes=max_processes,
     return_evals=True,
     optima_comparison_rtol=1e-6,
     optima_comparison_atol=1e-2
