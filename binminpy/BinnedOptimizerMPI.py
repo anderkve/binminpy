@@ -12,7 +12,8 @@ from scipy.optimize import (
 from copy import copy
 import warnings
 import itertools
-from mpi4py import MPI
+# from mpi4py import MPI
+from mpi4pyBLAH import MPI
 
 from binminpy.BinnedOptimizer import BinnedOptimizer
 
