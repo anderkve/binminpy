@@ -55,9 +55,7 @@ class BinnedOptimizer:
 
     def _worker_function(self, bin_index_tuple):
         """Function to optimize the target function within a set of bounds"""
-
         bounds = self.get_bin_limits(bin_index_tuple)
-
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
 
         # Lists to store function evaluations
@@ -67,7 +65,6 @@ class BinnedOptimizer:
         # Wrapper for the target function, to allow us to save the evaluations
         def target_function_wrapper(x, *args):
             y = self.target_function(x, *args)
-            # print(f"{self.print_prefix} target_function_wrapper:  x: {x}  args: {args}  y: {y}")
             if self.return_evals:
                 x_points.append(x)
                 y_points.append(y)
@@ -80,7 +77,6 @@ class BinnedOptimizer:
         res = None
 
         if self.optimizer == "minimize":
-
             try:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
             except ValueError as e:
@@ -89,34 +85,26 @@ class BinnedOptimizer:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "differential_evolution":
-
             res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "basinhopping":
-
             if not "minimizer_kwargs" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"] = {}
             use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
-
             if "args" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
                 del(use_optimizer_kwargs["args"])
-
             res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
 
         elif self.optimizer == "shgo":
-
             res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "dual_annealing":
-
             res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "direct":
-
             res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        # Now return result
         if self.return_evals:
             return res, np.array(x_points), np.array(y_points)
         else:
