@@ -19,10 +19,10 @@ from binminpy.BinnedOptimizer import BinnedOptimizer
 class BinnedOptimizerPPE(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
-                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
+                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, bin_masking=None):
         """Constructor."""
-        super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, 
-                         return_evals, optima_comparison_rtol, optima_comparison_atol)
+        super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals, 
+                         optima_comparison_rtol, optima_comparison_atol, bin_masking)
         self.max_processes = max_processes
 
 
@@ -39,14 +39,23 @@ class BinnedOptimizerPPE(BinnedOptimizer):
             "y_evals": np.array([]),
         }
         
+        # Masking
+        use_bin_indices, use_bin_index_tuples = self._do_bin_masking()
+        n_tasks = len(use_bin_indices)
+        print(f"{self.print_prefix} The input space is binned using {self.n_bins} bins.", flush=True)
+        print(f"{self.print_prefix} After applying the bin mask we are left with {n_tasks} optimization tasks.", flush=True)
+
         # Use ProcessPoolExecutor for parallel execution
         with ProcessPoolExecutor(max_workers=self.max_processes) as executor:
 
             # Create a generator for all the tasks
-            task_mapping = executor.map(self._worker_function, self.all_bin_index_tuples)
+            task_mapping = executor.map(self._worker_function, use_bin_index_tuples)
 
             # Now execute the tasks in parallel and collect the results 
-            for bin_index, worker_output in enumerate(task_mapping):
+            for task_index, worker_output in enumerate(task_mapping):
+                bin_index = use_bin_indices[task_index]
+                bin_index_tuple = use_bin_index_tuples[task_index]
+                task_number = task_index + 1
                 if self.return_evals:
                     opt_results, x_points, y_points = worker_output
                     output["all_optimizer_results"][bin_index] = opt_results
@@ -54,7 +63,7 @@ class BinnedOptimizerPPE(BinnedOptimizer):
                     output["y_evals"] = np.hstack((output["y_evals"], y_points))
                 else:
                     output["all_optimizer_results"][bin_index] = worker_output
-                print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
+                print(f"{self.print_prefix} Task {task_number} with bin index tuple {bin_index_tuple} is done.", flush=True)
 
         # Identify the global optima
         x_opt = []

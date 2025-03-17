@@ -20,10 +20,10 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
                  return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 task_distribution="even", n_tasks_per_batch=1):
+                 task_distribution="even", n_tasks_per_batch=1, bin_masking=None):
         """Constructor."""
-        super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, 
-                         return_evals, optima_comparison_rtol, optima_comparison_atol)
+        super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                         optima_comparison_rtol, optima_comparison_atol, bin_masking)
 
         task_distribution = task_distribution.lower()
         if task_distribution not in ["even", "dynamic"]:
@@ -53,20 +53,31 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         rank = comm.Get_rank()
         size = comm.Get_size()
 
+        # Masking
+        use_bin_indices, use_bin_index_tuples = self._do_bin_masking()
+        if rank == 0:
+            n_tasks = len(use_bin_indices)
+            print(f"{self.print_prefix} The input space is binned using {self.n_bins} bins.", flush=True)
+            print(f"{self.print_prefix} After applying the bin mask we are left with {n_tasks} optimization tasks.", flush=True)
+
         # Distribute tasks: each task corresponds to a bin.
-        my_indices = []
-        my_tasks = []
-        for idx, bin_index in enumerate(self.all_bin_index_tuples):
-            if idx % size == rank:
-                my_indices.append(idx)
-                my_tasks.append(bin_index)
+        my_task_indices = []
+        my_bin_index_tuples = []
+        for task_index, bin_index_tuple in enumerate(use_bin_index_tuples):
+            if task_index % size == rank:
+                my_task_indices.append(task_index)
+                my_bin_index_tuples.append(bin_index_tuple)
+
+        # Wait here until all processes are ready
+        comm.Barrier()
 
         # Each process computes its assigned tasks.
         my_results = {}
-        for idx, task in zip(my_indices, my_tasks):
-            result = self._worker_function(task)
-            my_results[idx] = result
-            print(f"{self.print_prefix} Rank {rank}: Task {idx} is done.", flush=True)
+        for task_index, bin_index_tuple in zip(my_task_indices, my_bin_index_tuples):
+            task_number = task_index + 1
+            result = self._worker_function(bin_index_tuple)
+            my_results[task_index] = result
+            print(f"{self.print_prefix} Task {task_number} with bin index tuple {bin_index_tuple} is done.", flush=True)
 
         # Gather all results at rank 0.
         gathered_results = comm.gather(my_results, root=0)
@@ -76,14 +87,15 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             x_evals_list = []
             y_evals_list = []
             for proc_dict in gathered_results:
-                for idx, result in proc_dict.items():
+                for task_index, result in proc_dict.items():
+                    bin_index = use_bin_indices[task_index]
                     if self.return_evals:
                         opt_result, x_points, y_points = result
-                        all_optimizer_results[idx] = opt_result
+                        all_optimizer_results[bin_index] = opt_result
                         x_evals_list.append(x_points)
                         y_evals_list.append(y_points)
                     else:
-                        all_optimizer_results[idx] = result
+                        all_optimizer_results[bin_index] = result
 
             if self.return_evals:
                 x_evals = np.vstack(x_evals_list) if x_evals_list else np.zeros((0, self.n_dims))
@@ -96,19 +108,19 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             x_opt = []
             y_opt = [float('inf')]
             optimal_bins = []
-            for idx in range(self.n_bins):
-                bin_opt_result = all_optimizer_results[idx]
+            for bin_index in range(self.n_bins):
+                bin_opt_result = all_optimizer_results[bin_index]
                 if bin_opt_result is not None:
                     if bin_opt_result.fun < y_opt[0]:
                         x_opt = [bin_opt_result.x]
                         y_opt = [bin_opt_result.fun]
-                        optimal_bins = [self.all_bin_index_tuples[idx]]
+                        optimal_bins = [self.all_bin_index_tuples[bin_index]]
                     elif math.isclose(bin_opt_result.fun, y_opt[0],
                                         rel_tol=self.optima_comparison_rtol,
                                         abs_tol=self.optima_comparison_atol):
                         x_opt.append(bin_opt_result.x)
                         y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(self.all_bin_index_tuples[idx])
+                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
 
             output = {
                 "x_optimal": x_opt,
@@ -139,13 +151,23 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         if size == 1:
             return self.run_even_task_distribution()
 
+        # Masking
+        use_bin_indices, use_bin_index_tuples = self._do_bin_masking()
+        if rank == 0:
+            n_tasks = len(use_bin_indices)
+            print(f"{self.print_prefix} The input space is binned using {self.n_bins} bins.", flush=True)
+            print(f"{self.print_prefix} After applying the bin mask we are left with {n_tasks} optimization tasks.", flush=True)
+
+        # Wait here until all processes are ready.
+        comm.Barrier()
+
         # If multiple MPI processes, use a master-worker pattern.
         TASK_TAG = 1
         RESULT_TAG = 2
 
         if rank == 0:
             # Master process.
-            tasks = [(idx, task) for idx, task in enumerate(self.all_bin_index_tuples)]
+            tasks = [(task_index, bin_index_tuple) for task_index, bin_index_tuple in enumerate(use_bin_index_tuples)]
             n_tasks = len(tasks)
             next_task_index = 0
             all_optimizer_results = [None] * self.n_bins
@@ -167,14 +189,15 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 result_dict = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
                 sender = status.Get_source()
                 # Process received results.
-                for task_idx, result in result_dict.items():
+                for task_index, result in result_dict.items():
+                    bin_index = use_bin_indices[task_index]
                     if self.return_evals:
                         opt_result, x_points, y_points = result
-                        all_optimizer_results[task_idx] = opt_result
+                        all_optimizer_results[bin_index] = opt_result
                         x_evals_list.append(x_points)
                         y_evals_list.append(y_points)
                     else:
-                        all_optimizer_results[task_idx] = result
+                        all_optimizer_results[bin_index] = result
 
                 # Assign new batch if available.
                 if next_task_index < n_tasks:
@@ -196,19 +219,19 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             x_opt = []
             y_opt = [float('inf')]
             optimal_bins = []
-            for idx in range(self.n_bins):
-                bin_opt_result = all_optimizer_results[idx]
+            for bin_index in range(self.n_bins):
+                bin_opt_result = all_optimizer_results[bin_index]
                 if bin_opt_result is not None:
                     if bin_opt_result.fun < y_opt[0]:
                         x_opt = [bin_opt_result.x]
                         y_opt = [bin_opt_result.fun]
-                        optimal_bins = [self.all_bin_index_tuples[idx]]
+                        optimal_bins = [self.all_bin_index_tuples[bin_index]]
                     elif math.isclose(bin_opt_result.fun, y_opt[0],
                                         rel_tol=self.optima_comparison_rtol,
                                         abs_tol=self.optima_comparison_atol):
                         x_opt.append(bin_opt_result.x)
                         y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(self.all_bin_index_tuples[idx])
+                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
@@ -227,10 +250,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 if batch is None:
                     break
                 results = {}
-                for task_idx, task in batch:
-                    result = self._worker_function(task)
-                    results[task_idx] = result
-                    print(f"{self.print_prefix} Rank {rank}: Task {task_idx} is done.", flush=True)
+                for task_index, bin_index_tuple in batch:
+                    task_number = task_index + 1
+                    result = self._worker_function(bin_index_tuple)
+                    results[task_index] = result
+                    print(f"{self.print_prefix} Task {task_number} with bin index tuple {bin_index_tuple} is done.", flush=True)
                 comm.send(results, dest=0, tag=RESULT_TAG)
             return None
 
