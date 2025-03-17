@@ -11,9 +11,8 @@ def target_function(x):
 
 if __name__ == "__main__":
 
-    # Example binning setup for a 3D input space
-    # binning_tuples = [(-6.0, 6.0, 40), (-6.0, 6.0, 40), (-6.0, 6.0, 2)]
-    binning_tuples = [(-6.0, 6.0, 4), (-6.0, 6.0, 4), (-6.0, 6.0, 2)]
+    # Example binning setup for a 3D input space using 5x5x2 bins
+    binning_tuples = [(-6.0, 6.0, 5), (-6.0, 6.0, 5), (-6.0, 6.0, 2)]
 
     #  ==================================================
 
