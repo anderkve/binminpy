@@ -1,12 +1,10 @@
-<h1 align="center">
-binminpy
-</h1>
 <br>
 <div align="center">
 <img src="logo.png" width="400"/>
 </div>
 <br>
-<br>
+
+# binminpy
 
 A Python package for binned and parallelised function optimisation.
 
