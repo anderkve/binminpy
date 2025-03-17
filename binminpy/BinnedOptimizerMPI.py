@@ -19,20 +19,25 @@ from binminpy.BinnedOptimizer import BinnedOptimizer
 class BinnedOptimizerMPI(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
-                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
+                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 task_distribution="even", n_tasks_per_batch=1):
         """Constructor."""
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, 
                          return_evals, optima_comparison_rtol, optima_comparison_atol)
 
-
-    def run(self, task_distribution="even", n_tasks_per_batch=1):
-        """Start the optimization using the chosen MPI task distribution scheme."""
+        task_distribution = task_distribution.lower()
         if task_distribution not in ["even", "dynamic"]:
             raise Exception(f"Unknown setting for argument 'task_distribution' ('{task_distribution}'). Valid options are 'even' and 'dynamic'.")
-        if task_distribution == "even":
+        self.task_distribution = task_distribution
+        self.n_tasks_per_batch = n_tasks_per_batch
+
+
+    def run(self):
+        """Start the optimization using the chosen MPI task distribution scheme."""
+        if self.task_distribution == "even":
             return self.run_even_task_distribution()
-        elif task_distribution == "dynamic":
-            return self.run_dynamic_task_distribution(n_tasks_per_batch)
+        elif self.task_distribution == "dynamic":
+            return self.run_dynamic_task_distribution()
 
 
     def run_even_task_distribution(self):
@@ -119,11 +124,9 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             return None
 
 
-    def run_dynamic_task_distribution(self, n_tasks_per_batch=1):
+    def run_dynamic_task_distribution(self):
         """Run the optimization using an MPI master-worker scheme with task batches.
 
-        Parameters:
-          n_tasks_per_batch: Number of tasks to assign per batch.
         Returns:
           On rank 0: a dictionary containing global optimization results.
           On other ranks: None.
@@ -152,7 +155,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             # Initially send one batch to each worker.
             for worker in range(1, size):
                 if next_task_index < n_tasks:
-                    batch = tasks[next_task_index: next_task_index + n_tasks_per_batch]
+                    batch = tasks[next_task_index: next_task_index + self.n_tasks_per_batch]
                     next_task_index += len(batch)
                     comm.send(batch, dest=worker, tag=TASK_TAG)
                 else:
@@ -175,7 +178,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 # Assign new batch if available.
                 if next_task_index < n_tasks:
-                    batch = tasks[next_task_index: next_task_index + n_tasks_per_batch]
+                    batch = tasks[next_task_index: next_task_index + self.n_tasks_per_batch]
                     next_task_index += len(batch)
                     comm.send(batch, dest=sender, tag=TASK_TAG)
                 else:

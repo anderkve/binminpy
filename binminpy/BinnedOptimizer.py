@@ -50,7 +50,8 @@ class BinnedOptimizer:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
         if "bounds" in self.optimizer_kwargs:
-            warnings.warn("BinnedOptimizer will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+            if self.optimizer_kwargs["bounds"] is not None:
+                warnings.warn("BinnedOptimizer will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
             del(self.optimizer_kwargs["bounds"])
 
         # Ensure that self.optimizer_kwargs["args"] is a tuple 
@@ -105,7 +106,7 @@ class BinnedOptimizer:
         elif self.optimizer == "basinhopping":
             if not "minimizer_kwargs" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"] = {}
-            use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
+            # use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
             if "args" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
                 del(use_optimizer_kwargs["args"])
