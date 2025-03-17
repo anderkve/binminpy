@@ -49,3 +49,12 @@ result = binminpy.minimize(
     max_processes=4,
 )
 ```
+
+## Parallelization
+
+**binminpy** can be run in four different parallelization modes:
+
+- serial: No parallelization
+- PPE: Distribute tasks evenly across multiple processes using `ProcessPoolExecutor` from `concurrent.futures`
+- MPI, even: Distribute tasks evenly across MPI processes using `mpi4py`.
+- MPI, dynamic: Use a master-worker pattern to distribute tasks across MPI processes using `mpi4py`.
