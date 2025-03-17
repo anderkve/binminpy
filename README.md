@@ -19,7 +19,7 @@ pip install git+https://github.com/anderkve/binminpy.git
 
 ## Minimal example
 
-Here is a minimal example of how to use **binminpy** to run `scipy.optimize.minimize` in parallel on a binned three-dimensional input space:
+Here is a minimal example of how to use binminpy to run `scipy.optimize.minimize` in parallel on a binned three-dimensional input space:
 
 ```python
 import binminpy
@@ -52,7 +52,7 @@ result = binminpy.minimize(
 
 ## Parallelization
 
-**binminpy** can be run in four different parallelization modes:
+binminpy can be run in four different parallelization modes:
 
 - **serial**: No parallelization.
 - **PPE**: Distribute tasks evenly across multiple processes using `ProcessPoolExecutor` from `concurrent.futures`
@@ -61,7 +61,7 @@ result = binminpy.minimize(
 
 ## Available optimizers
 
-The following optimizers are available through **binminpy**:
+The following optimizers are available through binminpy:
 
 - [scipy.optimize.minimize](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html#scipy.optimize.minimize)
 - [scipy.optimize.differential_evolution](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html#scipy.optimize.differential_evolution)
@@ -75,10 +75,10 @@ Some non-scipy optimizers will be added soon.
 
 ## Citing
 
-If you use **binminpy** in your work, make sure to also acknowledge the paper and/or repository for whichever optimizer you use.
+If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you run through binminpy.
 
 
 ## License
 
-The license for the **binminpy** source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use **binminpy**, make sure to adhere to the license of whatever optimizer you are using through **binminpy**.
+The license for the binminpy source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use binminpy, make sure to adhere to the license of the optimizer you run through binminpy.
 
