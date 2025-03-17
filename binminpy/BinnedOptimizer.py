@@ -17,7 +17,7 @@ import itertools
 class BinnedOptimizer:
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
-                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0):
+                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, bin_masking=None):
         """Constructor.
 
         Parameters:
@@ -27,6 +27,7 @@ class BinnedOptimizer:
           optimizer_kwargs: additional keyword arguments for the optimizer.
           return_evals: if True, record evaluations.
           optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
+          bin_masking: a function on the form bin_masking(bin_centre, bin_limits) -> True/False.
         """
 
         self.target_function = target_function
@@ -36,6 +37,7 @@ class BinnedOptimizer:
         self.return_evals = return_evals
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
+        self.bin_masking = bin_masking
 
         self.n_dims = len(binning_tuples)
         self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
@@ -127,6 +129,27 @@ class BinnedOptimizer:
             return res
 
 
+    def _do_bin_masking(self):
+        """Apply the user-provided bin masking function."""
+
+        use_bin_indices = []
+        use_bin_index_tuples = []
+
+        if self.bin_masking is None:
+            use_bin_indices = list(range(len(self.all_bin_index_tuples)))
+            use_bin_index_tuples = self.all_bin_index_tuples
+        else:
+            bin_mask = [True]*len(self.all_bin_index_tuples)
+            for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
+                bin_limits = self.get_bin_limits(bin_index_tuple)
+                bin_centre = np.array([0.5 * (x_min + x_max) for x_min,x_max in bin_limits])
+                bin_mask[i] = self.bin_masking(bin_centre, bin_limits)
+            use_bin_indices = [i for i in range(self.n_bins) if bin_mask[i]]
+            use_bin_index_tuples = [self.all_bin_index_tuples[i] for i in use_bin_indices]
+
+        return use_bin_indices, use_bin_index_tuples
+
+
     def run(self):
         """Start the optimization"""
 
@@ -140,8 +163,16 @@ class BinnedOptimizer:
             "y_evals": np.array([]),
         }
         
+        # Masking
+        use_bin_indices, use_bin_index_tuples = self._do_bin_masking()
+        n_tasks = len(use_bin_indices)
+        print(f"{self.print_prefix} The input space is binned using {self.n_bins} bins.", flush=True)
+        print(f"{self.print_prefix} After applying the bin mask we are left with {n_tasks} optimization tasks.", flush=True)
+
         # Carry out all the tasks in serial
-        for bin_index, bin_index_tuple in enumerate(self.all_bin_index_tuples):
+        for task_index, bin_index in enumerate(use_bin_indices):
+            bin_index_tuple = self.all_bin_index_tuples[bin_index]
+            task_number = task_index + 1
             worker_output = self._worker_function(bin_index_tuple)
             if self.return_evals:
                 opt_results, x_points, y_points = worker_output
@@ -150,16 +181,14 @@ class BinnedOptimizer:
                 output["y_evals"] = np.hstack((output["y_evals"], y_points))
             else:
                 output["all_optimizer_results"][bin_index] = worker_output
-            print(f"{self.print_prefix} Task {bin_index} is done.", flush=True)
+            print(f"{self.print_prefix} Task {task_number} with bin index tuple {bin_index_tuple} is done.", flush=True)
 
         # Identify the global optima
         x_opt = []
         y_opt = [float('inf')]
         optimal_bins = []
         for bin_index in range(self.n_bins):
-
             bin_opt_result = output["all_optimizer_results"][bin_index]
-
             if bin_opt_result is not None:
                 if bin_opt_result.fun < y_opt[0]:
                     x_opt = [bin_opt_result.x]
