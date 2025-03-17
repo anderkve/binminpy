@@ -80,5 +80,5 @@ If you use **binminpy** in your work, make sure to also acknowledge the paper an
 
 ## License
 
-The license of the **binminpy** source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use **binminpy**, make sure to adhere to the license of whatever optimizer you are running using through **binminpy**.
+The license for the **binminpy** source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use **binminpy**, make sure to adhere to the license of whatever optimizer you are using through **binminpy**.
 
