@@ -58,3 +58,21 @@ result = binminpy.minimize(
 - PPE: Distribute tasks evenly across multiple processes using `ProcessPoolExecutor` from `concurrent.futures`
 - MPI, even: Distribute tasks evenly across MPI processes using `mpi4py`.
 - MPI, dynamic: Use a master-worker pattern to distribute tasks across MPI processes using `mpi4py`.
+
+## Available optimizers
+
+The following optimizers are available through **binminpy**:
+
+- [scipy.optimize.minimize](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html#scipy.optimize.minimize)
+- [scipy.optimize.differential_evolution](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html#scipy.optimize.differential_evolution)
+- [scipy.optimize.basinhopping](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.basinhopping.html#scipy.optimize.basinhopping)
+- [scipy.optimize.shgo](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.shgo.html#scipy.optimize.shgo)
+- [scipy.optimize.dual_annealing](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.dual_annealing.html#scipy.optimize.dual_annealing)
+- [scipy.optimize.direct](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.direct.html#scipy.optimize.direct)
+
+Some non-scipy optimizers will be added soon.
+
+
+## Citing
+
+If you use **binminpy** in your work, make sure to also acknowledge the paper and/or repository for whichever optimizer you use.
