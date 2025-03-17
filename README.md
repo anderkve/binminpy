@@ -3,15 +3,10 @@ binminpy
 </h1>
 <br>
 <div align="center">
-<img src="logo.png" width="200"/>
-<br>
- <br>
-<i>binminpy</i>
+<img src="logo.png" width="400"/>
 </div>
 <br>
-
-
-# binminpy
+<br>
 
 A Python package for binned and parallelised function optimisation.
 
