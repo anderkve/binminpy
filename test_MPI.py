@@ -32,7 +32,8 @@ if __name__ == "__main__":
         optimizer_kwargs=optimizer_kwargs,
         return_evals=True,
         optima_comparison_rtol=1e-6,
-        optima_comparison_atol=1e-2
+        optima_comparison_atol=1e-2,
+        task_distribution="even",
     )
 
     # Run the optimization.
