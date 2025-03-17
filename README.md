@@ -19,7 +19,7 @@ pip install git+https://github.com/anderkve/binminpy.git
 
 ## Minimal example
 
-Here is a minimal example of how to run `scipy.optimize.minimize` in parallel on a binned three-dimensional input space:
+Here is a minimal example of how to use **binminpy** to run `scipy.optimize.minimize` in parallel on a binned three-dimensional input space:
 
 ```python
 import binminpy
