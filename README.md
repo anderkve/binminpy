@@ -75,10 +75,10 @@ Some non-scipy optimizers will be added soon.
 
 ## Citing
 
-If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you run through binminpy.
+If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you use.
 
 
 ## License
 
-The license for the binminpy source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use binminpy, make sure to adhere to the license of the optimizer you run through binminpy.
+The license for the binminpy source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use binminpy, make sure to adhere to the license of the optimizer you use.
 
