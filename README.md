@@ -26,14 +26,13 @@ import binminpy
 
 # An example target function
 def target_function(x):
-    """ An n-dimensional version of the Himmelblau function."""
-    result = 0.
-    for i in range(len(x)-1):
-        result += (x[i]**2 + x[i+1] - 11.)**2 + (x[i] + x[i+1]**2 - 7.)**2
-    return result
+    """A three-dimensional version of the Himmelblau function."""
+    func = (   (x[0]**2 + x[1] - 11.)**2 + (x[0] + x[1]**2 - 7.)**2
+             + (x[1]**2 + x[2] - 11.)**2 + (x[1] + x[2]**2 - 7.)**2 )
+    return func
 
-# Example binning setup for a 3D input space using 10x10x2 bins.
-binning_tuples = [(-6.0, 6.0, 10), (-6.0, 6.0, 10), (-6.0, 6.0, 2)]
+# Example binning setup for a 3D input space using 10x10x5 bins.
+binning_tuples = [(-6.0, 6.0, 60), (-6.0, 6.0, 60), (-6.0, 6.0, 5)]
 
 # Run binminpy.minimize, parallelized with four processes
 # using multiprocessing.Pool (parallelization="mpp").
