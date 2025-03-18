@@ -81,6 +81,29 @@ Connecting a new optimizer to binminpy is easy:
 *If you create an interface to a new optimizer that you think may be useful for others, you are very welcome to contribute it to binminpy via a pull request.*
 
 
+## Example with plotting
+
+In `example.py` binminpy is used to perform binned minimization of a 3D variant of the Himmelblau function. The input space is binned using 60x60x5 bins. 
+The output from binminpy is then used to make 1D and 2D plots showing the minimum function value for each given 1D/2D bin. 
+The binminpy run is parallelized using `multiprocessing.Pool`. If you run this example you should get three plots looking like this:
+  
+<img src="example_plot_2D_x0_x1.png" alt="2D example plot" width="333"/> <img src="example_plot_1D_x0.png" alt="1D example plot" width="333"/> <img src="example_plot_1D_x1.png" alt="1D example plot" width="333"/>
+
+The example in `example.py` also shows how to remove bins from the optimization run by passing a masking function to binminpy. 
+
+For instance, using the following masking function
+```Python
+def bin_masking(bin_centre, bin_edges):
+    r2 = bin_centre[0]**2 + bin_centre[1]**2
+    if r2 > 25.:
+        return False
+    return True
+```
+the results from `example.py` will look like this:
+
+<img src="example_plot_2D_x0_x1_masked.png" alt="2D example plot with masking" width="333"/> <img src="example_plot_1D_x0_masked.png" alt="1D example plot with masking" width="333"/> <img src="example_plot_1D_x1_masked.png" alt="1D example plot with masking" width="333"/>
+
+
 ## Citation
 
 If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you use.
