@@ -70,10 +70,14 @@ The following optimizers are available through binminpy:
 - [scipy.optimize.dual_annealing](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.dual_annealing.html#scipy.optimize.dual_annealing)
 - [scipy.optimize.direct](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.direct.html#scipy.optimize.direct)
 - [iminuit.minimize](https://scikit-hep.org/iminuit/reference.html#scipy-like-interface)
+- [Diver](https://github.com/diveropt/Diver)
+  - Note: Diver should be built *without* MPI, to avoid interference with binminpy's parallelization.
 
 Connecting a new optimizer to binminpy is easy:
 - Add it as a new optimizer option in `binminpy/BinnedOptimizer.py`, where you specify how the optimizer should be called. (See the existing examples.) The optimizer result should be put into a `scipy.optimize.OptimizeResult` instance.
-- Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions. 
+- Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions.
+
+*If you create an interface to a new optimizer that you think may be useful for others, you are very welcome to contribute it to binminpy via a pull request.*
 
 
 ## Citation

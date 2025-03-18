@@ -210,3 +210,21 @@ def iminuit(fun, binning_tuples, return_evals=False,
                           optima_comparison_rtol, optima_comparison_atol, parallelization,
                           max_processes, task_distribution, n_tasks_per_batch, bin_masking)
 
+
+
+def diver(fun, binning_tuples, return_evals=False, 
+          optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+          parallelization=None, max_processes=1, task_distribution="even",
+          n_tasks_per_batch=1, bin_masking=None, **kwargs):
+    """Do binned optimization with diver as the optimizer.
+
+    See https://github.com/diveropt/Diver
+    """
+
+    optimizer = "diver"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, 
+                          optima_comparison_rtol, optima_comparison_atol, parallelization,
+                          max_processes, task_distribution, n_tasks_per_batch, bin_masking)
+
