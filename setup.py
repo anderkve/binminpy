@@ -17,8 +17,13 @@ setup(
     ],
     python_requires='>=3.10',
     install_requires=[
-        "numpy >= 1.23.0",
-        "scipy >= 1.10.1",
+        "numpy>=2.1.3",
+        "scipy>=1.15.2",
+        "matplotlib>=3.10.1",
     ],
+    extras_require={
+        'iminuit': ['iminuit>=2.30.1'],
+        'MPI': ['mpi4py>=4.0.3'],
+    },
     license="GPLv3+",
 )
