@@ -90,8 +90,8 @@ The binminpy run is parallelized using `multiprocessing.Pool`. If you run this e
 <img src="example_plot_2D_x0_x1.png" alt="2D example plot" width="333"/> <img src="example_plot_1D_x0.png" alt="1D example plot" width="333"/> <img src="example_plot_1D_x1.png" alt="1D example plot" width="333"/>
 
 The example in `example.py` also shows how to remove bins from the optimization run by passing a masking function to binminpy. 
+For instance, when using the following masking function
 
-For instance, using the following masking function
 ```Python
 def bin_masking(bin_centre, bin_edges):
     r2 = bin_centre[0]**2 + bin_centre[1]**2
@@ -99,6 +99,7 @@ def bin_masking(bin_centre, bin_edges):
         return False
     return True
 ```
+
 the results from `example.py` will look like this:
 
 <img src="example_plot_2D_x0_x1_masked.png" alt="2D example plot with masking" width="333"/> <img src="example_plot_1D_x0_masked.png" alt="1D example plot with masking" width="333"/> <img src="example_plot_1D_x1_masked.png" alt="1D example plot with masking" width="333"/>
