@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Example function for masking some bins
     def bin_masking(bin_centre, bin_edges):
         r2 = bin_centre[0]**2 + bin_centre[1]**2
-        if r2 > 16.0:
+        if r2 > 25.0:
             return False
         return True
 
