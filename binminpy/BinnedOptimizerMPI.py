@@ -75,8 +75,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
         if rank == 0:
             all_optimizer_results = [None] * self.n_bins
-            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan),
-            y_optimal_per_bin = np.full((self.n_bins,), np.inf),
+            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
+            y_optimal_per_bin = np.full((self.n_bins,), np.inf)
             x_evals_list = []
             y_evals_list = []
 
@@ -115,11 +115,18 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         y_opt.append(bin_opt_result.fun)
                         optimal_bins.append(self.all_bin_index_tuples[bin_index])
 
+            bin_centers = None
+            if self.return_bin_centers:
+                bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
+                for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
+                    bin_centers[i] = self.get_bin_center(bin_index_tuple)
+
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
                 "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int),
+                "bin_centers": bin_centers,
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
                 "all_optimizer_results": all_optimizer_results,
