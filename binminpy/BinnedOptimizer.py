@@ -15,7 +15,7 @@ class BinnedOptimizer:
         Parameters:
           target_function: function to optimize.
           binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
-          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit"].
+          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"].
           optimizer_kwargs: additional keyword arguments for the optimizer.
           return_evals: if True, record evaluations.
           optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
@@ -39,7 +39,7 @@ class BinnedOptimizer:
 
         self.print_prefix = "BinnedOptimizer:"
 
-        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit"]
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
@@ -128,6 +128,23 @@ class BinnedOptimizer:
             # (of type scipy.optimize.OptimizeResult), since the Minuit 
             # instance cannot be pickled and therefore would break parallelization.
             del(res["minuit"]) 
+
+        elif self.optimizer == "diver":
+            # Note: Diver should be built *without* MPI, to avoid 
+            # interference with binminpy's parallelization. 
+            import diver
+            from numpy.typing import NDArray
+            def diver_target(p: NDArray[np.float64], fcall: int, finish: bool, validvector: bool, context: object) -> tuple[float, int, bool]:
+                finish = False
+                objective = 1e300 if not validvector else target_function_wrapper(p)
+                return objective, fcall+1, finish
+            opts = diver.defaults(lowerbounds=[b[0] for b in bounds], upperbounds=[b[1] for b in bounds])
+            diver_result = diver.run(diver_target, opts)
+            res = OptimizeResult(
+                x=diver_result[1],
+                fun=diver_result[0],
+            )
+
 
         if self.return_evals:
             return res, np.array(x_points), np.array(y_points)
