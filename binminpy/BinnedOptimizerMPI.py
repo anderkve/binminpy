@@ -1,14 +1,5 @@
 import math
 import numpy as np
-from scipy.optimize import (
-    minimize,
-    differential_evolution,
-    basinhopping,
-    shgo,
-    dual_annealing,
-    direct,
-    OptimizeResult
-)
 from copy import copy
 import warnings
 import itertools
@@ -19,11 +10,11 @@ from binminpy.BinnedOptimizer import BinnedOptimizer
 class BinnedOptimizerMPI(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
-                 return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, 
                  task_distribution="even", n_tasks_per_batch=1, bin_masking=None):
         """Constructor."""
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
-                         optima_comparison_rtol, optima_comparison_atol, bin_masking)
+                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, bin_masking)
 
         task_distribution = task_distribution.lower()
         if task_distribution not in ["even", "dynamic"]:
@@ -84,25 +75,27 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
         if rank == 0:
             all_optimizer_results = [None] * self.n_bins
+            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan),
+            y_optimal_per_bin = np.full((self.n_bins,), np.inf),
             x_evals_list = []
             y_evals_list = []
+
             for proc_dict in gathered_results:
                 for task_index, result in proc_dict.items():
                     bin_index = use_bin_indices[task_index]
+                    opt_result, x_points, y_points = result
+                    all_optimizer_results[bin_index] = opt_result
+                    x_optimal_per_bin[bin_index] = opt_result.x
+                    y_optimal_per_bin[bin_index] = opt_result.fun
                     if self.return_evals:
-                        opt_result, x_points, y_points = result
-                        all_optimizer_results[bin_index] = opt_result
-                        x_evals_list.append(x_points)
-                        y_evals_list.append(y_points)
-                    else:
-                        all_optimizer_results[bin_index] = result
+                        x_evals_list.extend(x_points)
+                        y_evals_list.extend(y_points)
 
+            x_evals = None
+            y_evals = None
             if self.return_evals:
-                x_evals = np.vstack(x_evals_list) if x_evals_list else np.zeros((0, self.n_dims))
-                y_evals = np.hstack(y_evals_list) if y_evals_list else np.array([])
-            else:
-                x_evals = np.zeros((0, self.n_dims))
-                y_evals = np.array([])
+                x_evals = np.array(x_evals_list)
+                y_evals = np.array(y_evals_list)
 
             # Identify the global optimum.
             x_opt = []
@@ -126,7 +119,9 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_order": self.all_bin_index_tuples,
+                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int),
+                "x_optimal_per_bin": x_optimal_per_bin,
+                "y_optimal_per_bin": y_optimal_per_bin,
                 "all_optimizer_results": all_optimizer_results,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
@@ -171,6 +166,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             n_tasks = len(tasks)
             next_task_index = 0
             all_optimizer_results = [None] * self.n_bins
+            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
+            y_optimal_per_bin = np.full((self.n_bins,), np.inf)
             x_evals_list = []
             y_evals_list = []
 
@@ -191,13 +188,13 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 # Process received results.
                 for task_index, result in result_dict.items():
                     bin_index = use_bin_indices[task_index]
+                    opt_result, x_points, y_points = result
+                    all_optimizer_results[bin_index] = opt_result
+                    x_optimal_per_bin[bin_index] = opt_result.x
+                    y_optimal_per_bin[bin_index] = opt_result.fun
                     if self.return_evals:
-                        opt_result, x_points, y_points = result
-                        all_optimizer_results[bin_index] = opt_result
-                        x_evals_list.append(x_points)
-                        y_evals_list.append(y_points)
-                    else:
-                        all_optimizer_results[bin_index] = result
+                        x_evals_list.extend(x_points)
+                        y_evals_list.extend(y_points)
 
                 # Assign new batch if available.
                 if next_task_index < n_tasks:
@@ -208,12 +205,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     comm.send(None, dest=sender, tag=TASK_TAG)
                     num_terminated += 1
 
+            x_evals = None
+            y_evals = None
             if self.return_evals:
-                x_evals = np.vstack(x_evals_list) if x_evals_list else np.zeros((0, self.n_dims))
-                y_evals = np.hstack(y_evals_list) if y_evals_list else np.array([])
-            else:
-                x_evals = np.zeros((0, self.n_dims))
-                y_evals = np.array([])
+                x_evals = np.array(x_evals_list)
+                y_evals = np.array(y_evals_list)
 
             # Determine the global optimum.
             x_opt = []
@@ -232,11 +228,21 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         x_opt.append(bin_opt_result.x)
                         y_opt.append(bin_opt_result.fun)
                         optimal_bins.append(self.all_bin_index_tuples[bin_index])
+
+            bin_centers = None
+            if self.return_bin_centers:
+                bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
+                for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
+                    bin_centers[i] = self.get_bin_center(bin_index_tuple)
+
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_order": self.all_bin_index_tuples,
+                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int),
+                "bin_centers": bin_centers,
+                "x_optimal_per_bin": x_optimal_per_bin,
+                "y_optimal_per_bin": y_optimal_per_bin,
                 "all_optimizer_results": all_optimizer_results,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
