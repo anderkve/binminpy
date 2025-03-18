@@ -133,13 +133,17 @@ class BinnedOptimizer:
             # Note: Diver should be built *without* MPI, to avoid 
             # interference with binminpy's parallelization. 
             import diver
-            from numpy.typing import NDArray
-            def diver_target(p: NDArray[np.float64], fcall: int, finish: bool, validvector: bool, context: object) -> tuple[float, int, bool]:
+            def diver_target(x, fcall, finish, validvector, context):
                 finish = False
-                objective = 1e300 if not validvector else target_function_wrapper(p)
+                if not validvector:
+                    objective = 1e300
+                else: 
+                    objective = target_function_wrapper(x)
                 return objective, fcall+1, finish
-            opts = diver.defaults(lowerbounds=[b[0] for b in bounds], upperbounds=[b[1] for b in bounds])
-            diver_result = diver.run(diver_target, opts)
+            diver_opts = copy(use_optimizer_kwargs)
+            diver_opts["lowerbounds"] = [b[0] for b in bounds]
+            diver_opts["upperbounds"] = [b[1] for b in bounds]
+            diver_result = diver.run(diver_target, diver_opts)
             res = OptimizeResult(
                 x=diver_result[1],
                 fun=diver_result[0],

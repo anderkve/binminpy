@@ -1,3 +1,4 @@
+import numpy as np
 from mpi4py import MPI
 import binminpy
 
@@ -220,6 +221,36 @@ if __name__ == "__main__":
         parallelization="mpi",
         task_distribution="dynamic",
         n_tasks_per_batch=5,
+        # diver options:
+        path="diver_output",
+        nDerived=0,
+        discrete=np.array([], dtype=np.int32),
+        partitionDiscrete=False,
+        maxgen=300,
+        NP=max(10*len(binning_tuples), 5),
+        F=np.array([0.7]),
+        Cr=0.9,
+        lmbda=0.0,
+        current=False,
+        expon=False,
+        bndry=1,
+        jDE=True,
+        lambdajDE=True,
+        convthresh=1e-3,
+        convsteps=10,
+        removeDuplicates=True,
+        savecount=1,
+        resume=False,
+        disableIO=True,
+        outputRaw=False,
+        outputSam=False,
+        init_population_strategy=0,
+        discard_unfit_points=False,
+        max_initialisation_attempts=10000,
+        max_acceptable_value=1e6,
+        seed=-1,
+        context=None,
+        verbose=0,
     )
 
     # Print results
@@ -231,4 +262,5 @@ if __name__ == "__main__":
             print(f"  - x: {result['x_optimal'][i]}")
             print(f"  - y: {result['y_optimal'][i]}")
         print()
+
 

@@ -75,7 +75,9 @@ The following optimizers are available through binminpy:
 
 Connecting a new optimizer to binminpy is easy:
 - Add it as a new optimizer option in `binminpy/BinnedOptimizer.py`, where you specify how the optimizer should be called. (See the existing examples.) The optimizer result should be put into a `scipy.optimize.OptimizeResult` instance.
-- Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions. 
+- Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions.
+
+*If you create an interface to a new optimizer that you think may be useful for others, you are very welcome to contribute it to binminpy via a pull request.*
 
 
 ## Citation
