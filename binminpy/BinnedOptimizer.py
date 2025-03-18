@@ -15,7 +15,7 @@ class BinnedOptimizer:
         Parameters:
           target_function: function to optimize.
           binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
-          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"].
+          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "adam"].
           optimizer_kwargs: additional keyword arguments for the optimizer.
           return_evals: if True, record evaluations.
           optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
@@ -39,7 +39,7 @@ class BinnedOptimizer:
 
         self.print_prefix = "BinnedOptimizer:"
 
-        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"]
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "adam"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
@@ -149,6 +149,21 @@ class BinnedOptimizer:
                 fun=diver_result[0],
             )
 
+        elif self.optimizer == "adam":
+            import tensorflow as tf
+            x_tf = tf.Variable(x0)
+            # optimizer = tf.keras.optimizers.Adam(learning_rate=0.1)
+            adam_optimizer = tf.keras.optimizers.Adam(**use_optimizer_kwargs)
+            # Optimization loop
+            for step in range(100):
+                with tf.GradientTape() as tape:
+                    loss = target_function_wrapper(x_tf)
+                gradients = tape.gradient(loss, [x_tf])
+                adam_optimizer.apply_gradients(zip(gradients, [x_tf]))
+            res = OptimizeResult(
+                x=x_tf.numpy(),
+                fun=float(target_function_wrapper(x_tf)),
+            )
 
         if self.return_evals:
             return res, np.array(x_points), np.array(y_points)

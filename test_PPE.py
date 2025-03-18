@@ -2,10 +2,9 @@ import numpy as np
 import binminpy
 
 def target_function(x):
-    # Use an n-dimensional version of the Himmelblau function
-    func = 0
-    for i in range(len(x)-1):
-        func += (x[i]**2 + x[i+1] - 11.)**2 + (x[i] + x[i+1]**2 - 7.)**2
+    # Use an three-dimensional version of the Himmelblau function
+    func = (  (x[0]**2 + x[1] - 11.)**2 + (x[0] + x[1]**2 - 7.)**2
+            + (x[1]**2 + x[2] - 11.)**2 + (x[1] + x[2]**2 - 7.)**2 )
     return func
 
 
@@ -236,3 +235,43 @@ if __name__ == "__main__":
     print()
 
 
+    #  ==================================================
+
+
+    # Test "adam" function with PPE parallelization
+    print()
+    print("# Testing binned 'adam' with PPE parallelization")
+    print("------------------------------------------------")
+    result = binminpy.adam(
+        target_function, 
+        binning_tuples, 
+        return_evals=False,
+        optima_comparison_rtol=1e-6, 
+        optima_comparison_atol=1e-2,
+        parallelization="ppe",
+        max_processes=4,
+        # Adam options:
+        learning_rate=0.001,
+        beta_1=0.9,
+        beta_2=0.999,
+        epsilon=1e-07,
+        amsgrad=False,
+        weight_decay=None,
+        clipnorm=None,
+        clipvalue=None,
+        global_clipnorm=None,
+        use_ema=False,
+        ema_momentum=0.99,
+        ema_overwrite_frequency=None,
+        loss_scale_factor=None,
+        gradient_accumulation_steps=None,
+    )
+
+    # Print results
+    best_bins = result["optimal_bins"]
+    print(f"# Global optima found in bin(s) {best_bins}:")
+    for i,bin_index_tuple in enumerate(best_bins):
+        print(f"- Bin {bin_index_tuple}:")
+        print(f"  - x: {result['x_optimal'][i]}")
+        print(f"  - y: {result['y_optimal'][i]}")
+    print()
