@@ -69,8 +69,11 @@ The following optimizers are available through binminpy:
 - [scipy.optimize.shgo](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.shgo.html#scipy.optimize.shgo)
 - [scipy.optimize.dual_annealing](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.dual_annealing.html#scipy.optimize.dual_annealing)
 - [scipy.optimize.direct](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.direct.html#scipy.optimize.direct)
+- [iminuit.minimize](https://scikit-hep.org/iminuit/reference.html#scipy-like-interface)
 
-Some non-scipy optimizers will be added soon.
+Connecting a new optimizer to binminpy is easy:
+- Add it as a new optimizer option in `binminpy/BinnedOptimizer`, where you specify how the optimizer should be called. (See the existing examples.) The optimizer result should be put into an instance of `scipy.optimize.OptimizeResult`.
+- Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions. 
 
 
 ## Citing

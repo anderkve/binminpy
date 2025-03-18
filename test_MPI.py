@@ -173,3 +173,32 @@ if __name__ == "__main__":
         print()
 
 
+    #  ==================================================
+
+
+    # Test "iminuit" function with MPI parallelization
+    if rank == 0:
+        print()
+        print("# Testing binned 'iminuit' with MPI parallelization")
+        print("---------------------------------------------------")
+    result = binminpy.iminuit(
+        target_function, 
+        binning_tuples, 
+        return_evals=False,
+        optima_comparison_rtol=1e-6, 
+        optima_comparison_atol=1e-2,
+        parallelization="mpi",
+        task_distribution="dynamic",
+        n_tasks_per_batch=5,
+    )
+
+    # Print results
+    if rank == 0:    
+        best_bins = result["optimal_bins"]
+        print(f"# Global optima found in bin(s) {best_bins}:")
+        for i,bin_index_tuple in enumerate(best_bins):
+            print(f"- Bin {bin_index_tuple}:")
+            print(f"  - x: {result['x_optimal'][i]}")
+            print(f"  - y: {result['y_optimal'][i]}")
+        print()
+

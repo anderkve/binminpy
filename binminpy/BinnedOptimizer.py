@@ -1,14 +1,6 @@
 import math
 import numpy as np
-from scipy.optimize import (
-    minimize,
-    differential_evolution,
-    basinhopping,
-    shgo,
-    dual_annealing,
-    direct,
-    OptimizeResult
-)
+from scipy.optimize import OptimizeResult
 from copy import copy
 import warnings
 import itertools
@@ -16,14 +8,14 @@ import itertools
 
 class BinnedOptimizer:
 
-    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
+    def __init__(self, target_function, binning_tuples, optimizer="iminuit", optimizer_kwargs={}, 
                  return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, bin_masking=None):
         """Constructor.
 
         Parameters:
           target_function: function to optimize.
           binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
-          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct"].
+          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit"].
           optimizer_kwargs: additional keyword arguments for the optimizer.
           return_evals: if True, record evaluations.
           optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
@@ -47,7 +39,7 @@ class BinnedOptimizer:
 
         self.print_prefix = "BinnedOptimizer:"
 
-        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct"]
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
@@ -95,6 +87,7 @@ class BinnedOptimizer:
         res = None
 
         if self.optimizer == "minimize":
+            from scipy.optimize import minimize
             try:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
             except ValueError as e:
@@ -103,9 +96,11 @@ class BinnedOptimizer:
                 res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "differential_evolution":
+            from scipy.optimize import differential_evolution
             res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "basinhopping":
+            from scipy.optimize import basinhopping
             if not "minimizer_kwargs" in use_optimizer_kwargs:
                 use_optimizer_kwargs["minimizer_kwargs"] = {}
             # use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
@@ -115,13 +110,24 @@ class BinnedOptimizer:
             res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
 
         elif self.optimizer == "shgo":
+            from scipy.optimize import shgo
             res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "dual_annealing":
+            from scipy.optimize import dual_annealing
             res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
         elif self.optimizer == "direct":
+            from scipy.optimize import direct
             res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
+
+        elif self.optimizer == "iminuit":
+            from iminuit import minimize as iminuit_minimize
+            res = iminuit_minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+            # We need to delete the iminuit.Minuit instance from the result 
+            # (of type scipy.optimize.OptimizeResult), since the Minuit 
+            # instance cannot be pickled and therefore would break parallelization.
+            del(res["minuit"]) 
 
         if self.return_evals:
             return res, np.array(x_points), np.array(y_points)
