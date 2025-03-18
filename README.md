@@ -72,7 +72,7 @@ The following optimizers are available through binminpy:
 - [iminuit.minimize](https://scikit-hep.org/iminuit/reference.html#scipy-like-interface)
 
 Connecting a new optimizer to binminpy is easy:
-- Add it as a new optimizer option in `binminpy/BinnedOptimizer`, where you specify how the optimizer should be called. (See the existing examples.) The optimizer result should be put into an instance of `scipy.optimize.OptimizeResult`.
+- Add it as a new optimizer option in `binminpy/BinnedOptimizer.py`, where you specify how the optimizer should be called. (See the existing examples.) The optimizer result should be put into a `scipy.optimize.OptimizeResult` instance.
 - Add an interface function in `binminpy/__init__.py`, following the same pattern as the existing functions. 
 
 
