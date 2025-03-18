@@ -73,7 +73,7 @@ The following optimizers are available through binminpy:
 Some non-scipy optimizers will be added soon.
 
 
-## Citing
+## Citation
 
 If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you use.
 
