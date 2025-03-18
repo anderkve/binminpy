@@ -88,6 +88,7 @@ The output from binminpy is then used to make 1D and 2D plots showing the minimu
 The binminpy run is parallelized using `multiprocessing.Pool`. If you run this example you should get three plots looking like this:
   
 <img src="example_plot_2D_x0_x1.png" alt="2D example plot" width="601"/> 
+
 <img src="example_plot_1D_x0.png" alt="1D example plot" width="300"/> <img src="example_plot_1D_x1.png" alt="1D example plot" width="300"/>
 
 The example in `example.py` also shows how to remove bins from the optimization run by passing a masking function to binminpy. 
@@ -104,6 +105,7 @@ def bin_masking(bin_centre, bin_edges):
 the results from `example.py` will look like this:
 
 <img src="example_plot_2D_x0_x1_masked.png" alt="2D example plot with masking" width="601"/> 
+
 <img src="example_plot_1D_x0_masked.png" alt="1D example plot with masking" width="300"/> <img src="example_plot_1D_x1_masked.png" alt="1D example plot with masking" width="300"/>
 
 
