@@ -32,11 +32,11 @@ def target_function(x):
         result += (x[i]**2 + x[i+1] - 11.)**2 + (x[i] + x[i+1]**2 - 7.)**2
     return result
 
-# Example binning setup for a 3D input space using 5x5x2 bins.
-binning_tuples = [(-6.0, 6.0, 5), (-6.0, 6.0, 5), (-6.0, 6.0, 2)]
+# Example binning setup for a 3D input space using 10x10x2 bins.
+binning_tuples = [(-6.0, 6.0, 10), (-6.0, 6.0, 10), (-6.0, 6.0, 2)]
 
 # Run binminpy.minimize, parallelized with four processes
-# using concurrent.futures.ProcessPoolExecutor (parallelization="ppe").
+# using multiprocessing.Pool (parallelization="mpp").
 result = binminpy.minimize(
     target_function, 
     binning_tuples, 
@@ -45,7 +45,7 @@ result = binminpy.minimize(
     return_evals=False,
     optima_comparison_rtol=1e-6, 
     optima_comparison_atol=1e-4,
-    parallelization="ppe",
+    parallelization="mpp",
     max_processes=4,
 )
 ```
