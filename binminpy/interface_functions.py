@@ -11,8 +11,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
     # Check the parallelization argument.
     if parallelization is None:
         parallelization = "serial"
-    if parallelization.lower() not in ["serial", "ppe", "mpi"]:
-        raise Exception(f"Unknown setting for argument 'parallelization' ('{task_distribution}'). Valid options are 'serial'/None, 'ppe' and 'mpi'.")
+    if parallelization.lower() not in ["serial", "mpp", "ppe", "mpi"]:
+        raise Exception(f"Unknown setting for argument 'parallelization' ('{task_distribution}'). Valid options are 'serial'/None, 'mpp', 'ppe' and 'mpi'.")
     parallelization = parallelization.lower()        
 
     # Run binned optimization with the requested parallelization.
@@ -29,6 +29,23 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
             bin_masking=bin_masking,
+        )
+        output = binned_opt.run()
+        return output
+
+    elif parallelization == "mpp":
+        from binminpy.BinnedOptimizerMPP import BinnedOptimizerMPP
+        binned_opt = BinnedOptimizerMPP(
+            fun,
+            binning_tuples,
+            optimizer=optimizer,
+            optimizer_kwargs=optimizer_kwargs,
+            return_evals=return_evals,
+            return_bin_centers=return_bin_centers,            
+            optima_comparison_rtol=optima_comparison_rtol,
+            optima_comparison_atol=optima_comparison_atol,
+            max_processes=max_processes,
+            bin_masking=bin_masking,            
         )
         output = binned_opt.run()
         return output
