@@ -8,7 +8,7 @@ import itertools
 
 class BinnedOptimizer:
 
-    def __init__(self, target_function, binning_tuples, optimizer="iminuit", optimizer_kwargs={}, 
+    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
                  return_evals=False, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, bin_masking=None):
         """Constructor.
 
