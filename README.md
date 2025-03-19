@@ -90,7 +90,7 @@ The binminpy run is parallelized using `multiprocessing.Pool`. If you run this e
 
 <img src="./example_plots/example_plot_1D_x0.png" alt="1D example plot" width="300"/> <img src="./example_plots/example_plot_1D_x1.png" alt="1D example plot" width="300"/>
 
-The example in `example.py` also shows how to remove bins from the optimization run by passing a masking function to binminpy. 
+The example in `example.py` also shows how to filter out uninteresting bins before starting the optimization, by passing a masking function to binminpy. 
 For instance, when using the following masking function
 
 ```Python
