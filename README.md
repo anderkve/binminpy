@@ -82,7 +82,7 @@ Connecting a new optimizer to binminpy is easy:
 
 ## Example with plotting
 
-In `example.py` binminpy is used to perform binned minimization of a 3D variant of the Himmelblau function. The input space is binned using 60x60x5 bins. 
+In `example.py` binminpy is used to perform binned minimization of a 3D version of the Himmelblau function. The input space is binned using 60x60x5 bins. 
 The output from binminpy is then used to make 1D and 2D plots showing the minimum function value for each given 1D/2D bin. 
 The binminpy run is parallelized using `multiprocessing.Pool`. If you run this example you should get three plots looking like this:
   
@@ -95,8 +95,12 @@ For instance, when using the following masking function
 
 ```Python
 def bin_masking(bin_centre, bin_edges):
-    r2 = bin_centre[0]**2 + bin_centre[1]**2
-    if r2 > 25.:
+    x0 = bin_centre[0]
+    x1 = bin_centre[1]
+    ellipse_1 = ((x0 - 0.0) / 4)**2 + ((x1 - 3.0) / 2)**2
+    ellipse_2 = ((x0 + 3.5) / 2)**2 + ((x1 - 0.0) / 5)**2
+    ellipse_3 = ((x0 - 3.5) / 2)**2 + ((x1 - 0.0) / 4)**2
+    if (ellipse_1 > 1) and (ellipse_2 > 1) and (ellipse_3 > 1):
         return False
     return True
 ```

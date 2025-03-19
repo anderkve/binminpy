@@ -20,8 +20,12 @@ if __name__ == "__main__":
 
     # Example function for masking some bins
     def bin_masking(bin_centre, bin_edges):
-        r2 = bin_centre[0]**2 + bin_centre[1]**2
-        if r2 > 25.0:
+        x0 = bin_centre[0]
+        x1 = bin_centre[1]
+        ellipse_1 = ((x0 - 0.0) / 4)**2 + ((x1 - 3.0) / 2)**2
+        ellipse_2 = ((x0 + 3.5) / 2)**2 + ((x1 - 0.0) / 5)**2
+        ellipse_3 = ((x0 - 3.5) / 2)**2 + ((x1 - 0.0) / 4)**2
+        if (ellipse_1 > 1) and (ellipse_2 > 1) and (ellipse_3 > 1):
             return False
         return True
 
@@ -37,7 +41,7 @@ if __name__ == "__main__":
         optima_comparison_atol=1e-4,
         parallelization="mpp",
         max_processes=4,
-        # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
+        bin_masking=bin_masking,  # <- Activate to use the bin_masking function
         method="L-BFGS-B",
         tol=1e-9,
     )
