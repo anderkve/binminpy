@@ -345,7 +345,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             n_walkers = n_workers
 
             # Lists to keep track of each walker
-            walkers = [{'x': None, 'logp': None, 'proposal': None}] * n_walkers
+            walkers = [{'x': None, 'logp': None}] * n_walkers
             iterations = [0] * n_walkers
 
             # Dicts to keep track of each MPI worker
@@ -370,11 +370,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     available_bins = np.argwhere(evaluated_mask == False)
                     x0 = available_bins[np.random.choice(available_bins.shape[0])]
 
-                walkers[walker_index] = {'x': x0, 'logp': -np.inf, 'proposal': x0}
+                walkers[walker_index] = {'x': x0, 'logp': -np.inf}
                 iterations[walker_index] = 0
                 evaluated_mask[tuple(x0)] = True
                 print(f"{self.print_prefix} rank {rank}:  Sending point x = {x0} to rank {worker_rank}", flush=True)
-                comm.send(x0, dest=worker_rank, tag=TASK_TAG)
+                comm.send([x0], dest=worker_rank, tag=TASK_TAG)
 
             # Now on to the asynchronous loop, to process results as they come.
             finished = set()
@@ -382,84 +382,117 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 status = MPI.Status()
 
                 # Block until any worker returns a result.
-                result = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
+                result_tuples = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
                 worker_rank = status.Get_source()
                 walker_index = worker_rank - 1
-                
-                # Register this as a performed task
-                tasks_performed[worker_rank] += 1
+                n_results = len(result_tuples)
+
+                # Register the performed tasks
+                tasks_performed[worker_rank] += n_results
                 if tasks_performed[worker_rank] >= self.max_tasks_per_worker:
                     stop_worker[worker_rank] = True
 
-                # The received result corresponds to the proposal we had sent.
-                proposal = walkers[walker_index]['proposal']
+                # Store all results received and extract the logp values
+                logp_vals = []
+                for proposal, result in result_tuples:
+                    opt_result, x_points, y_points = result
+                    all_optimizer_results.append(opt_result)
+                    bin_tuples.append(tuple(proposal))
+                    x_optimal_per_bin.append(opt_result.x)
+                    y_optimal_per_bin.append(opt_result.fun)
+                    if self.return_evals:
+                        x_evals_list.extend(x_points)
+                        y_evals_list.extend(y_points)
+                    logp_vals.append(-1. * opt_result.fun)
+                logp_vals = np.array(logp_vals)
 
-                # Store result and extract logp_recieved
-                opt_result, x_points, y_points = result
+                # Now order the results according to their logp value (highest first)
+                # and perform the Metropolis test to attempt a move 
+                logp_ordering = np.argsort(logp_vals)[::-1]
+                logp_vals = logp_vals[logp_ordering]
+                proposals = [result_tuples[i][0] for i in logp_ordering]
 
-                all_optimizer_results.append(opt_result)
-                bin_tuples.append(tuple(proposal))
-                x_optimal_per_bin.append(opt_result.x)
-                y_optimal_per_bin.append(opt_result.fun)
-                if self.return_evals:
-                    x_evals_list.extend(x_points)
-                    y_evals_list.extend(y_points)
+                # # The received result corresponds to the proposal we had sent.
+                # proposal = walkers[walker_index]['proposal']
 
-                logp_received = -1. * opt_result.fun
+                # # Store result and extract logp_recieved
+                # opt_result, x_points, y_points = result
+
+                # all_optimizer_results.append(opt_result)
+                # bin_tuples.append(tuple(proposal))
+                # x_optimal_per_bin.append(opt_result.x)
+                # y_optimal_per_bin.append(opt_result.fun)
+                # if self.return_evals:
+                #     x_evals_list.extend(x_points)
+                #     y_evals_list.extend(y_points)
+
+                # logp_received = -1. * opt_result.fun
+
+                # Perform the Metropolis step for the evaluated proposals
+                for proposal, proposal_logp in zip(proposals, logp_vals):
+
+                    current_logp = walkers[walker_index]['logp']
+                    # Accept the new proposal?
+                    if np.log(np.random.rand()) < (proposal_logp - current_logp):
+                        walkers[walker_index]['x'] = proposal
+                        walkers[walker_index]['logp'] = proposal_logp
+                        # If a move is accepted, skip the rest
+                        break
 
 
-                # Perform the Metropolis test using the new log-likelihood.
-                current_logp = walkers[walker_index]['logp']
-                if np.log(np.random.rand()) < (logp_received - current_logp):
-                    # Accept the new proposal.
-                    walkers[walker_index]['x'] = proposal
-                    walkers[walker_index]['logp'] = logp_received
-
-
-                # Now attempt to propose a new move until one is found that has not been evaluated.
+                # Now collect a batch of proposal steps
+                proposal_batch = []
                 n_tries = 0
                 step_size = 1
-                while not stop_worker[worker_rank]:
+                while (not stop_worker[worker_rank]):
 
-                    n_tries += 1
-                    iterations[walker_index] += 1
+                    while len(proposal_batch) < self.n_tasks_per_batch:
 
-                    # Propose a move: add a random integer step from {-1, 0, 1} in each dimension.
-                    new_proposal = walkers[walker_index]['x'] + np.random.randint(-step_size, step_size+1, self.n_dims)
+                        n_tries += 1
+                        iterations[walker_index] += 1
 
-                    # Occasionally jump to a random available bin
-                    if n_tries % (20*self.n_dims) == 0:
-                    # if np.random.rand() < 0.20:
-                        available_bins = np.argwhere(evaluated_mask == False)
-                        # If all bins are evaluated, stop *all* workers as soon as they report back
-                        if len(available_bins) == 0:
-                            print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.")
-                            stop_worker = dict.fromkeys(stop_worker, True)
-                            break
-                        new_proposal = available_bins[np.random.choice(available_bins.shape[0])]
-                        # # TODO: Sometimes we may want to force a move. But should do it in a cleaner way.
-                        # walkers[walker_index]['x'] = proposal
-                        # print(f"{self.print_prefix} rank {rank}: Random proposal jump: {walkers[walker_index]['x']} --> {new_proposal}")
+                        # Propose a move: add a random integer step from {-1, 0, 1} in each dimension.
+                        new_proposal = walkers[walker_index]['x'] + np.random.randint(-step_size, step_size+1, self.n_dims)
 
-                    # Ensure the new proposal is within the grid bounds.
-                    if np.any(new_proposal < 0) or np.any(new_proposal >= self.n_bins_per_dim):
-                        continue  # out-of-bounds proposals are simply rejected
+                        # Occasionally jump to a random available bin
+                        if n_tries % (20*self.n_dims) == 0:
+                            available_bins = np.argwhere(evaluated_mask == False)
+                            # If all bins are evaluated, stop *all* workers as soon as they report back
+                            if len(available_bins) == 0:
+                                print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.")
+                                stop_worker = dict.fromkeys(stop_worker, True)
+                                break
+                            new_proposal = available_bins[np.random.choice(available_bins.shape[0])]
+                            # TODO: Sometimes we may want to force a move.
 
-                    if evaluated_mask[tuple(new_proposal)]:
-                        # Already evaluated: automatically reject (walker stays at current state).
-                        if n_tries % self.n_dims == 0:
-                            step_size += 1
-                        #     print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
-                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: x = {new_proposal} is an old point.", flush=True)
-                        continue  # try another proposal immediately
-                    else:
-                        # New point: set as proposal and send for evaluation.
-                        walkers[walker_index]['proposal'] = new_proposal
+                        # Ensure the new proposal is within the grid bounds.
+                        if np.any(new_proposal < 0) or np.any(new_proposal >= self.n_bins_per_dim):
+                            continue  # out-of-bounds proposals are simply rejected
+
+                        # Check the proposed point is not already evaluated
+                        if evaluated_mask[tuple(new_proposal)]:
+                            # Already evaluated: automatically reject (walker stays at current state).
+                            if n_tries % self.n_dims == 0:
+                                step_size += 1
+                            #     print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: x = {new_proposal} is an old point.", flush=True)
+                            # Try another proposal
+                            continue
+
+                        # OK, proposal can be added to the batch
+                        proposal_batch.append(new_proposal)
+
+                    # Have we decided to stop?
+                    if stop_worker[worker_rank]:
+                        break
+
+                    # Now we have a batch that we can send to the worker
+                    # First, set the evaluated_mask to True for all the proposals
+                    for proposal in proposal_batch:
                         evaluated_mask[tuple(new_proposal)] = True
-                        comm.send(new_proposal, dest=worker_rank, tag=TASK_TAG)
-                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Sent new point x = {new_proposal}.", flush=True)
-                        break  # exit loop and wait for evaluation from the worker
-
+                    comm.send(proposal_batch, dest=worker_rank, tag=TASK_TAG)
+                    # Now break the outer while loop and wait for message from the worker
+                    break
 
                 # If we have decided to stop the worker, send a message with TERMINATE_TAG
                 if stop_worker[worker_rank]:
@@ -534,13 +567,18 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             while True:
                 data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
                 tag = status.Get_tag()
+                # Terminate?
                 if tag == TERMINATE_TAG or data is None:
                     print(f"{self.print_prefix} rank {rank}: Got TERMINATE_TAG. Will stop working now", flush=True)
                     break
-                bin_index_tuple = data
-                result = self._worker_function(bin_index_tuple)
-                print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
-                comm.send(result, dest=0, tag=RESULT_TAG)
+                # Do the requested tasks
+                task_batch = data
+                results = []
+                for bin_index_tuple in task_batch:
+                    result = self._worker_function(bin_index_tuple)
+                    print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
+                    results.append((bin_index_tuple, result))
+                comm.send(results, dest=0, tag=RESULT_TAG)
             return None
 
 

@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Configure and run the optimization
     #
 
-    binning_tuples = [(-6.0, 6.0, 40), (-6.0, 6.0, 40), (-6.0, 6.0, 40), (-6.0, 6.0, 40)]
+    binning_tuples = [(-6.0, 6.0, 120), (-6.0, 6.0, 120), (-6.0, 6.0, 30), (-6.0, 6.0, 30)]
 
     # Example function for masking some bins
     def bin_masking(bin_centre, bin_edges):
@@ -48,7 +48,8 @@ if __name__ == "__main__":
         # max_processes=4,
         parallelization="mpi",
         task_distribution="mcmc",
-        max_tasks_per_worker=4000,
+        max_tasks_per_worker=1000 * 20,
+        n_tasks_per_batch=20,
         # task_distribution="even",
         # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
         method="L-BFGS-B",
