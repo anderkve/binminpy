@@ -7,7 +7,7 @@ rank = comm.Get_rank()
 size = comm.Get_size()
 
 def target_function(x):
-    """A three-dimensional version of the Himmelblau function."""
+    """A multi-dimensional version of the Himmelblau function."""
     func = (   (x[0]**2 + x[1] - 11.)**2 + (x[0] + x[1]**2 - 7.)**2
              + (x[1]**2 + x[2] - 11.)**2 + (x[1] + x[2]**2 - 7.)**2 
              + (x[2]**2 + x[3] - 11.)**2 + (x[2] + x[3]**2 - 7.)**2 )
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # Configure and run the optimization
     #
 
-    binning_tuples = [(-6.0, 6.0, 120), (-6.0, 6.0, 120), (-6.0, 6.0, 20), (-6.0, 6.0, 20)]
+    binning_tuples = [(-6.0, 6.0, 40), (-6.0, 6.0, 40), (-6.0, 6.0, 40), (-6.0, 6.0, 40)]
 
     # Example function for masking some bins
     def bin_masking(bin_centre, bin_edges):
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         # max_processes=4,
         parallelization="mpi",
         task_distribution="mcmc",
-        max_tasks_per_worker=20000,
+        max_tasks_per_worker=4000,
         # task_distribution="even",
         # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
         method="L-BFGS-B",
