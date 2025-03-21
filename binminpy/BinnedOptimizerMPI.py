@@ -442,15 +442,20 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         n_tries += 1
                         iterations[walker_index] += 1
 
+                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Start new attemp. n_tries: {n_tries}")
+
                         # Propose a move:
                         # Initially 33% chance for 0
                         new_proposal = walkers[walker_index]['x'] + np.random.randint(-step_size, step_size+1, self.n_dims)
+                        new_proposal = new_proposal % np.array(self.n_bins_per_dim)
+                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: New proposal: {new_proposal} n_tries: {n_tries}")
 
                         # Initially 50% chance for 0
                         # new_proposal = walkers[walker_index]['x'] + np.random.choice([-1,1], self.n_dims) * np.random.randint(0, step_size+1, self.n_dims)
 
                         # Occasionally jump to a random available bin
-                        if n_tries % (10*self.n_dims) == 0:
+                        if n_tries % (100*self.n_dims) == 0:
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Going into the big-jump block!")
                             available_bins = np.argwhere(evaluated_mask == False)
                             # If all bins are evaluated, stop *all* workers as soon as they report back
                             if len(available_bins) == 0:
@@ -458,24 +463,31 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                                 stop_worker = dict.fromkeys(stop_worker, True)
                                 break
                             new_proposal = available_bins[np.random.choice(available_bins.shape[0])]
+                            print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Doing huge jump! n_tries: {n_tries}")
+                            n_tries = 0
                             # TODO: Sometimes we may want to force a move.
+
 
                         # Ensure the new proposal is within the grid bounds.
                         if np.any(new_proposal < 0) or np.any(new_proposal >= self.n_bins_per_dim):
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} not inside grid bounds.")
                             continue  # out-of-bounds proposals are simply rejected
 
                         # Check the proposed point is not already evaluated
                         if evaluated_mask[tuple(new_proposal)]:
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} is an old point! Will try again. n_tries: {n_tries}")
                             # Already evaluated: automatically reject (walker stays at current state).
-                            if n_tries % self.n_dims == 0:
+                            if n_tries % (2*self.n_dims) == 0:
                                 step_size += 1
-                                # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
+                                print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
                             # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: x = {new_proposal} is an old point.", flush=True)
                             # Try another proposal
                             continue
 
                         # OK, proposal can be added to the batch
+                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: OK! Proposal {new_proposal} added to task bach! n_tries: {n_tries}.")
                         proposal_batch.append(new_proposal)
+                        n_tries = 0
 
                     # Have we decided to stop?
                     if stop_worker[worker_rank]:

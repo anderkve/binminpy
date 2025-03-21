@@ -6,6 +6,8 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
 
+np.random.seed(15234 + 1235*rank)
+
 # def target_function(x):
 #     """A multi-dimensional version of the Himmelblau function."""
 #     func = 0
@@ -30,6 +32,7 @@ def target_function(x):
 
 if __name__ == "__main__":
 
+
     #
     # Configure and run the optimization
     #
@@ -41,7 +44,7 @@ if __name__ == "__main__":
 
     # binning_tuples = [(-5, 10.0, 120), (-5, 10.0, 120), (-5, 10.0, 5), (-5, 10.0, 5)]
     # binning_tuples = [(-5, 10.0, 100), (-5, 10.0, 100), (-5, 10.0, 100)]
-    binning_tuples = [(-5, 10.0, 120), (-5, 10.0, 30), (-5, 10.0, 120), (-5, 10.0, 30)]
+    binning_tuples = [(-5, 10.0, 120), (-5, 10.0, 120), (-5, 10.0, 1), (-5, 10.0, 1)]
     # binning_tuples = [(-5, 10.0, 30), (-5, 10.0, 30), (-5, 10.0, 120), (-5, 10.0, 120)]
 
 
@@ -59,7 +62,28 @@ if __name__ == "__main__":
     # Do the binned optimization with the scipy.optimize.minimize
     # optimizer and parallelization via multiprocessing.Pool 
     # (parallelization="mpp") using 4 processes.
-    result = binminpy.minimize(
+
+    # result = binminpy.minimize(
+    #     target_function, 
+    #     binning_tuples, 
+    #     return_evals=False,
+    #     return_bin_centers=True,
+    #     optima_comparison_rtol=1e-6, 
+    #     optima_comparison_atol=1e-4,
+    #     # parallelization="mpi",
+    #     # max_processes=4,
+    #     parallelization="mpi",
+    #     task_distribution="mcmc",
+    #     max_tasks_per_worker=100, # int(1000. / len(binning_tuples)) ,
+    #     n_tasks_per_batch=1, # len(binning_tuples),
+    #     # task_distribution="even",
+    #     # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
+    #     method="L-BFGS-B",
+    #     tol=1e-6,
+    # )
+
+
+    result = binminpy.diver(
         target_function, 
         binning_tuples, 
         return_evals=False,
@@ -70,13 +94,42 @@ if __name__ == "__main__":
         # max_processes=4,
         parallelization="mpi",
         task_distribution="mcmc",
-        max_tasks_per_worker=4000, # int(1000. / len(binning_tuples)) ,
+        max_tasks_per_worker=400, # int(1000. / len(binning_tuples)) ,
         n_tasks_per_batch=1, # len(binning_tuples),
         # task_distribution="even",
         # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
-        method="L-BFGS-B",
-        tol=1e-6,
+        # diver options:
+        path="diver_output",
+        nDerived=0,
+        discrete=np.array([], dtype=np.int32),
+        partitionDiscrete=False,
+        maxgen=300,
+        NP=15*2,
+        F=np.array([0.7]),
+        Cr=0.9,
+        lmbda=0.0,
+        current=False,
+        expon=False,
+        bndry=1,
+        jDE=True,
+        lambdajDE=True,
+        convthresh=1e-3,
+        convsteps=10,
+        removeDuplicates=True,
+        savecount=1,
+        resume=False,
+        disableIO=True,
+        outputRaw=False,
+        outputSam=False,
+        init_population_strategy=0,
+        discard_unfit_points=False,
+        max_initialisation_attempts=10000,
+        max_acceptable_value=1e6,
+        seed=-1,
+        context=None,
+        verbose=0,
     )
+
 
     
     #
