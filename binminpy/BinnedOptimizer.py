@@ -81,7 +81,7 @@ class BinnedOptimizer:
         return random_point
 
 
-    def _worker_function(self, bin_index_tuple):
+    def _worker_function(self, bin_index_tuple, x0_in=None):
         """Function to optimize the target function within a set of bounds"""
         bounds = self.get_bin_limits(bin_index_tuple)
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
@@ -97,9 +97,6 @@ class BinnedOptimizer:
                 y_points.append(y)
             return y
 
-        # Initial point (for optimizers that need this)
-        # x0 = self.get_bin_center(bin_index_tuple)
-
         # Do the optimization and store the result
         final_res = None
 
@@ -107,7 +104,10 @@ class BinnedOptimizer:
 
             # Initial point (for optimizers that need this)
             if run_i == 0:
-                x0 = self.get_bin_center(bin_index_tuple)
+                if x0_in is None:
+                    x0 = self.get_bin_center(bin_index_tuple)
+                else:
+                    x0 = x0_in
             else:
                 x0 = self.get_random_point_in_bin(bin_index_tuple)
 

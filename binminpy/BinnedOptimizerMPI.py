@@ -5,6 +5,7 @@ import warnings
 import itertools
 from mpi4py import MPI
 from scipy.stats import qmc
+import bisect
 
 from binminpy.BinnedOptimizer import BinnedOptimizer
 
@@ -15,6 +16,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                  n_restarts_per_bin=1, task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
                  bin_masking=None, mcmc_options={}):
         """Constructor."""
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                          n_restarts_per_bin, bin_masking)
@@ -34,12 +40,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             self.mcmc_options["n_tries_before_step_increase"] = 2*self.n_dims
         if "n_tries_before_jump" not in self.mcmc_options.keys():
             self.mcmc_options["n_tries_before_jump"] = 100*self.n_dims
-
         if "always_accept_target_below" not in self.mcmc_options.keys():
             self.mcmc_options["always_accept_target_below"] = -np.inf
         if "always_accept_delta_target_below" not in self.mcmc_options.keys():
             self.mcmc_options["always_accept_delta_target_below"] = 0.0
-
+        if "suggestion_cache_size" not in self.mcmc_options.keys():
+            self.mcmc_options["suggestion_cache_size"] = min(max(100, 10 * self.n_dims * (size - 1)), 10000) 
 
 
     def run(self):
@@ -343,6 +349,34 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 evaluated_mask[bin_index_tuple] = True
             evaluated_mask = np.invert(evaluated_mask)
 
+            # System for suggestion cache
+            bin_suggestion_cache = []
+            suggestion_cache_size = self.mcmc_options["suggestion_cache_size"]
+            def add_suggestion(y_val, bin_index_tuple):
+                # Clear out-of-date suggestions:
+                for i in range(len(bin_suggestion_cache))[::-1]:
+                    if evaluated_mask[tuple(bin_suggestion_cache[i][1])]:
+                        bin_suggestion_cache.pop(i)
+                new_pair = (y_val, bin_index_tuple)
+                # print(f"DEBUG: Adding new suggestion: {new_pair}", flush=True)
+                bisect.insort(bin_suggestion_cache, new_pair)
+                if len(bin_suggestion_cache) > suggestion_cache_size:
+                    bin_suggestion_cache.pop()
+                add_suggestion.max_y = bin_suggestion_cache[-1][0]
+            add_suggestion.max_y = np.inf
+
+            def get_suggestion():
+                while True:
+                    if len(bin_suggestion_cache) == 0:
+                        return None
+                    # random_index = np.random.randint(0,len(bin_suggestion_cache))
+                    # y_val, bin_index_tuple = bin_suggestion_cache.pop(random_index)
+                    y_val, bin_index_tuple = bin_suggestion_cache.pop(0)
+                    if evaluated_mask[tuple(bin_index_tuple)]:
+                        continue
+                    else:
+                        return np.array(bin_index_tuple)
+
             # Prepare some containers
             next_task_index = 0
             all_optimizer_results = []
@@ -364,7 +398,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             n_available_bins = max_n_bins
 
             # Lists to keep track of each walker
-            walkers = [{'x': None, 'logp': None}] * n_walkers
+            walkers = [{"bin": None, "logp": None, "x": None}] * n_walkers
             iterations = [0] * n_walkers
 
             # Dicts to keep track of each MPI worker
@@ -384,24 +418,24 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 # Starting bin. Try first with the latin hypercube point,
                 # and if that point is masked out, just pick a random available point.
-                x0 = lh_samples[walker_index]
-                if evaluated_mask[tuple(x0)] == True:
+                bin_indices = lh_samples[walker_index]
+                if evaluated_mask[tuple(bin_indices)] == True:
                     available_bins = np.argwhere(evaluated_mask == False)
-                    x0 = available_bins[np.random.choice(available_bins.shape[0])]
+                    bin_indices = available_bins[np.random.choice(available_bins.shape[0])]
 
-                walkers[walker_index] = {'x': x0, 'logp': -np.inf}
+                walkers[walker_index] = {"bin": bin_indices, "logp": -np.inf, "x": self.get_bin_center(bin_indices)}
                 iterations[walker_index] = 0
-                evaluated_mask[tuple(x0)] = True
+                evaluated_mask[tuple(bin_indices)] = True
                 n_available_bins -= 1
-                print(f"{self.print_prefix} rank {rank}:  Sending point x = {x0} to rank {worker_rank}", flush=True)
-                comm.send([x0], dest=worker_rank, tag=TASK_TAG)
+                print(f"{self.print_prefix} rank {rank}:  Sending bin {bin_indices} to rank {worker_rank}", flush=True)
+                comm.send(([bin_indices], None), dest=worker_rank, tag=TASK_TAG)
 
             # Now on to the asynchronous loop, to process results as they come.
             finished = set()
             while len(finished) < n_walkers:
                 status = MPI.Status()
 
-                print(f"{self.print_prefix} rank {rank}:  Current global ymin: {current_global_ymin}")
+                print(f"{self.print_prefix} rank {rank}:  Current global ymin: {current_global_ymin}  add_suggestion.max_y: {add_suggestion.max_y}  len(bin_suggestion_cache): {len(bin_suggestion_cache)}", flush=True)
 
                 # Block until any worker returns a result.
                 result_tuples = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -416,6 +450,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 # Store all results received and extract the logp values
                 logp_vals = []
+                x_vals = []
                 for proposal, result in result_tuples:
                     opt_result, x_points, y_points = result
                     all_optimizer_results.append(opt_result)
@@ -426,27 +461,49 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
                     logp_vals.append(-1. * opt_result.fun)
+                    x_vals.append(opt_result.x)
                     # Update current global best-fit value?
                     if opt_result.fun < current_global_ymin:
                         current_global_ymin = opt_result.fun
                 logp_vals = np.array(logp_vals)
+                x_vals = np.array(x_vals)
 
                 # Now order the results according to their logp value (highest first)
                 # and start testing whether or not to accept the proposed moves
                 logp_ordering = np.argsort(logp_vals)[::-1]
                 logp_vals = logp_vals[logp_ordering]
+                x_vals = x_vals[logp_ordering]
                 proposals = [result_tuples[i][0] for i in logp_ordering]
 
-                for proposal, proposal_logp in zip(proposals, logp_vals):
-
+                for proposal, proposal_logp, x_val in zip(proposals, logp_vals, x_vals):
                     current_logp = walkers[walker_index]['logp']
+
                     # Accept the new proposal?
+                    accepted_by_user_threshold = False
                     if ( (proposal_logp > -self.mcmc_options["always_accept_target_below"]) 
-                          or (-current_global_ymin - proposal_logp < self.mcmc_options["always_accept_delta_target_below"])
-                          or (np.log(np.random.rand()) < (proposal_logp - current_logp)) ):
-                        walkers[walker_index]['x'] = proposal
-                        walkers[walker_index]['logp'] = proposal_logp
-                        # If a move is accepted, skip the rest
+                          or (-current_global_ymin - proposal_logp < self.mcmc_options["always_accept_delta_target_below"]) ):
+                        accepted_by_user_threshold = True
+                    if (accepted_by_user_threshold) or (np.log(np.random.rand()) < (proposal_logp - current_logp)):
+                        walkers[walker_index]["bin"] = proposal
+                        walkers[walker_index]["logp"] = proposal_logp
+                        walkers[walker_index]["x"] = x_val
+
+                        # Add available neighbor bins to cached suggestions?
+                        y_val = -proposal_logp
+                        if accepted_by_user_threshold:
+                            for dim in range(self.n_dims):
+                                for shift in [-1,1]:
+                                    new_index = proposal[dim] + shift
+                                    if (new_index < 0) or (new_index >= self.n_bins_per_dim[dim]):
+                                        continue
+                                    neighbor_bin_tuple = np.array(proposal)
+                                    neighbor_bin_tuple[dim] = new_index
+                                    # print(f"DEBUG: proposal: {proposal}  neighbor_bin_tuple: {neighbor_bin_tuple}", flush=True)
+                                    if not evaluated_mask[tuple(neighbor_bin_tuple)]:
+                                        add_suggestion(y_val, tuple(neighbor_bin_tuple))
+                                        # available_neighbor_bins.append(tuple(neighbor_bin_tuple))
+                            # print(f"DEBUG: available_neighbor_bins: \n {available_neighbor_bins}", flush=True)
+                        # Since this move was accepted, skip the rest
                         break
 
                 # Now collect a batch of proposal steps
@@ -456,7 +513,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 while (not stop_worker[worker_rank]):
 
                     if n_available_bins <= 0:
-                        print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.")
+                        print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.", flush=True)
                         stop_worker = dict.fromkeys(stop_worker, True)
                         break
 
@@ -465,51 +522,71 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         n_tries += 1
                         iterations[walker_index] += 1
 
-                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Start new attemp. n_tries: {n_tries}")
+                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Start new attemp. n_tries: {n_tries}", flush=True)
 
                         # Propose a move:
                         # Initially 33% chance for 0
-                        new_proposal = walkers[walker_index]['x'] + np.random.randint(-step_size, step_size+1, self.n_dims)
-                        new_proposal = new_proposal % np.array(self.n_bins_per_dim)
-                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: New proposal: {new_proposal} n_tries: {n_tries}")
+                        new_proposal = walkers[walker_index]["bin"] + np.random.randint(-step_size, step_size+1, self.n_dims)
+                        new_proposal = np.maximum(new_proposal, np.zeros(self.n_dims, dtype=int))
+                        new_proposal = np.minimum(new_proposal, np.array(self.n_bins_per_dim, dtype=int) - 1)
 
                         # Initially 50% chance for 0
-                        # new_proposal = walkers[walker_index]['x'] + np.random.choice([-1,1], self.n_dims) * np.random.randint(0, step_size+1, self.n_dims)
-                        # new_proposal = new_proposal % np.array(self.n_bins_per_dim)
+                        # new_proposal = walkers[walker_index]["bin"] + np.random.choice([-1,1], self.n_dims) * np.random.randint(0, step_size+1, self.n_dims)
+                        # new_proposal = np.maximum(new_proposal, np.zeros(self.n_dims))
+                        # new_proposal = np.minimum(new_proposal, np.array(self.n_bins_per_dim) - 1)
+
+                        if n_tries % self.mcmc_options["n_tries_before_step_increase"] == 0:
+                            step_size += 1
+                            print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}  n_tries: {n_tries}" , flush=True)
+
+                            # if np.random.random() < 0.90:
+                            #     step_size += 1
+                            #     print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}", flush=True)
+                            # else:
+                            #     suggestion = get_suggestion()
+                            #     if suggestion is not None:
+                            #         new_proposal = suggestion
+                            #         print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Doing huge jump to bin {new_proposal}  n_tries: {n_tries}", flush=True)
+                            # n_tries = 0
 
                         # Occasionally jump to a random available bin
-                        if n_tries >= self.mcmc_options["n_tries_before_jump"]:
-                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Going into the big-jump block!")
-                            available_bins = np.argwhere(evaluated_mask == False)
-                            # If all bins are evaluated, stop *all* workers as soon as they report back
-                            if len(available_bins) == 0:
-                                print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.")
-                                stop_worker = dict.fromkeys(stop_worker, True)
-                                break
-                            new_proposal = available_bins[np.random.choice(available_bins.shape[0])]
-                            print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Doing huge jump! n_tries: {n_tries}")
-                            n_tries = 0
-                            # TODO: Sometimes we may want to force a move.
+                        if n_tries % self.mcmc_options["n_tries_before_jump"] == 0:
+                            suggestion = get_suggestion()
+                            if suggestion is not None:
+                                new_proposal = suggestion
+                                print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Doing huge jump to bin {new_proposal}  n_tries: {n_tries}", flush=True)
+                            # n_tries = 0
+                            # # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Going into the big-jump block!", flush=True)
+                            # available_bins = np.argwhere(evaluated_mask == False)
+                            # # If all bins are evaluated, stop *all* workers as soon as they report back
+                            # if len(available_bins) == 0:
+                            #     print(f"{self.print_prefix} rank {rank}: No more available bins! Will stop all worker processes as soon as possible.", flush=True)
+                            #     stop_worker = dict.fromkeys(stop_worker, True)
+                            #     break
+                            # new_proposal = available_bins[np.random.choice(available_bins.shape[0])]
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Doing huge jump! n_tries: {n_tries}", flush=True)
+                            # n_tries = 0
+                            # # TODO: Sometimes we may want to force a move.
 
 
                         # Ensure the new proposal is within the grid bounds.
                         if np.any(new_proposal < 0) or np.any(new_proposal >= self.n_bins_per_dim):
-                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} not inside grid bounds.")
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} not inside grid bounds.", flush=True)
                             continue  # out-of-bounds proposals are simply rejected
 
                         # Check the proposed point is not already evaluated
                         if evaluated_mask[tuple(new_proposal)]:
-                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} is an old point! Will try again. n_tries: {n_tries}")
+                            # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} is an old point! Will try again. n_tries: {n_tries}", flush=True)
                             # Already evaluated: automatically reject (walker stays at current state).
-                            if n_tries % self.mcmc_options["n_tries_before_step_increase"] == 0:
-                                step_size += 1
-                                print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
+                            # if n_tries % self.mcmc_options["n_tries_before_step_increase"] == 0:
+                            #     step_size += 1
+                            #     print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}", flush=True)
                             # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: x = {new_proposal} is an old point.", flush=True)
                             # Try another proposal
                             continue
 
                         # OK, proposal can be added to the batch
-                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: OK! Proposal {new_proposal} added to task bach! n_tries: {n_tries}.")
+                        # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: OK! Proposal {new_proposal} added to task bach! n_tries: {n_tries}.", flush=True)
                         proposal_batch.append(new_proposal)
                         n_tries = 0
 
@@ -522,7 +599,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     for proposal in proposal_batch:
                         evaluated_mask[tuple(new_proposal)] = True
                         n_available_bins -= 1
-                    comm.send(proposal_batch, dest=worker_rank, tag=TASK_TAG)
+                    # Pass along an initial point?
+                    x0_in = None
+                    if self.mcmc_options["inherit_min_coords"]:
+                        x0_in = walkers[walker_index]["x"]
+                    # Send the batch
+                    comm.send((proposal_batch, x0_in), dest=worker_rank, tag=TASK_TAG)
                     # Now break the outer while loop and wait for message from the worker
                     break
 
@@ -534,9 +616,9 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         finished.add(worker_rank)
 
                 if iterations[walker_index] % 100 == 0:
-                    print(f"{self.print_prefix} rank {worker_rank}: The walker has processed {iterations[walker_index]} proposals.")
+                    print(f"{self.print_prefix} rank {worker_rank}: The walker has processed {iterations[walker_index]} proposals.", flush=True)
                 if tasks_performed[worker_rank] % 100 == 0:
-                    print(f"{self.print_prefix} rank {worker_rank}: {tasks_performed[worker_rank]} tasks performed.")
+                    print(f"{self.print_prefix} rank {worker_rank}: {tasks_performed[worker_rank]} tasks performed.", flush=True)
 
 
             # 
@@ -598,15 +680,28 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             while True:
                 data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
                 tag = status.Get_tag()
+
                 # Terminate?
                 if tag == TERMINATE_TAG or data is None:
                     print(f"{self.print_prefix} rank {rank}: Got TERMINATE_TAG. Will stop working now", flush=True)
                     break
+
                 # Do the requested tasks
-                task_batch = data
+                task_batch, x0_in = data
                 results = []
                 for bin_index_tuple in task_batch:
-                    result = self._worker_function(bin_index_tuple)
+                    # Extract usabel coordinates from x0_in.
+                    # Remaining coordinates are set using the bin center
+                    if x0_in is not None:
+                        bounds = np.array(self.get_bin_limits(bin_index_tuple))
+                        bin_center = self.get_bin_center(bin_index_tuple)
+                        mask = (x0_in >= bounds[:, 0]) & (x0_in <= bounds[:, 1])
+                        for i,mask_val in enumerate(mask):
+                            if mask_val == False:
+                                x0_in[i] = bin_center[i]
+                        # print(f"DEBUG: x0_in = {x0_in}", flush=True)
+                    # Now run the worker function for this bin
+                    result = self._worker_function(bin_index_tuple, x0_in=x0_in)
                     print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
                     results.append((bin_index_tuple, result))
                 comm.send(results, dest=0, tag=RESULT_TAG)
