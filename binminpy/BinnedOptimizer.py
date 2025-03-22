@@ -10,7 +10,7 @@ class BinnedOptimizer:
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
                  return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 
-                 optima_comparison_atol=0.0, bin_masking=None):
+                 optima_comparison_atol=0.0, n_restarts_per_bin=1, bin_masking=None):
         """Constructor.
 
         Parameters:
@@ -31,6 +31,7 @@ class BinnedOptimizer:
         self.return_bin_centers = return_bin_centers
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
+        self.n_restarts_per_bin = n_restarts_per_bin
         self.bin_masking = bin_masking
 
         self.n_dims = len(binning_tuples)
@@ -73,6 +74,13 @@ class BinnedOptimizer:
         return bin_center
 
 
+    def get_random_point_in_bin(self, bin_index_tuple):
+        """Sample a random point within a bin, given a tuple of per-dimension bin indices."""
+        bin_limits = np.array(self.get_bin_limits(bin_index_tuple))
+        random_point = bin_limits[:,0] + np.random.random(self.n_dims) * (bin_limits[:,1] - bin_limits[:,0])
+        return random_point
+
+
     def _worker_function(self, bin_index_tuple):
         """Function to optimize the target function within a set of bounds"""
         bounds = self.get_bin_limits(bin_index_tuple)
@@ -90,75 +98,90 @@ class BinnedOptimizer:
             return y
 
         # Initial point (for optimizers that need this)
-        x0 = self.get_bin_center(bin_index_tuple)
+        # x0 = self.get_bin_center(bin_index_tuple)
 
         # Do the optimization and store the result
-        res = None
+        final_res = None
 
-        if self.optimizer == "minimize":
-            from scipy.optimize import minimize
-            try:
-                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
-            except ValueError as e:
-                warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
-                use_optimizer_kwargs["method"] = "trust-constr"
-                res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+        for run_i in range(self.n_restarts_per_bin):
 
-        elif self.optimizer == "differential_evolution":
-            from scipy.optimize import differential_evolution
-            res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
+            # Initial point (for optimizers that need this)
+            if run_i == 0:
+                x0 = self.get_bin_center(bin_index_tuple)
+            else:
+                x0 = self.get_random_point_in_bin(bin_index_tuple)
 
-        elif self.optimizer == "basinhopping":
-            from scipy.optimize import basinhopping
-            if not "minimizer_kwargs" in use_optimizer_kwargs:
-                use_optimizer_kwargs["minimizer_kwargs"] = {}
-            # use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
-            if "args" in use_optimizer_kwargs:
-                use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
-                del(use_optimizer_kwargs["args"])
-            res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
+            if self.optimizer == "minimize":
+                from scipy.optimize import minimize
+                try:
+                    res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+                except ValueError as e:
+                    warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                    use_optimizer_kwargs["method"] = "trust-constr"
+                    res = minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
 
-        elif self.optimizer == "shgo":
-            from scipy.optimize import shgo
-            res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
+            elif self.optimizer == "differential_evolution":
+                from scipy.optimize import differential_evolution
+                res = differential_evolution(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        elif self.optimizer == "dual_annealing":
-            from scipy.optimize import dual_annealing
-            res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
+            elif self.optimizer == "basinhopping":
+                from scipy.optimize import basinhopping
+                if not "minimizer_kwargs" in use_optimizer_kwargs:
+                    use_optimizer_kwargs["minimizer_kwargs"] = {}
+                # use_optimizer_kwargs["minimizer_kwargs"]["bounds"] = bounds
+                if "args" in use_optimizer_kwargs:
+                    use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
+                    del(use_optimizer_kwargs["args"])
+                res = basinhopping(target_function_wrapper, x0, **use_optimizer_kwargs)
 
-        elif self.optimizer == "direct":
-            from scipy.optimize import direct
-            res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
+            elif self.optimizer == "shgo":
+                from scipy.optimize import shgo
+                res = shgo(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        elif self.optimizer == "iminuit":
-            from iminuit import minimize as iminuit_minimize
-            res = iminuit_minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
-            # We need to delete the iminuit.Minuit instance from the result 
-            # (of type scipy.optimize.OptimizeResult), since the Minuit 
-            # instance cannot be pickled and therefore would break parallelization.
-            del(res["minuit"]) 
+            elif self.optimizer == "dual_annealing":
+                from scipy.optimize import dual_annealing
+                res = dual_annealing(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        elif self.optimizer == "diver":
-            # Note: Diver should be built *without* MPI, to avoid 
-            # interference with binminpy's parallelization. 
-            import diver
-            def diver_target(x, fcall, finish, validvector, context):
-                finish = False
-                if not validvector:
-                    objective = 1e300
-                else: 
-                    objective = target_function_wrapper(x)
-                return objective, fcall+1, finish
-            diver_opts = copy(use_optimizer_kwargs)
-            diver_opts["lowerbounds"] = [b[0] for b in bounds]
-            diver_opts["upperbounds"] = [b[1] for b in bounds]
-            diver_result = diver.run(diver_target, diver_opts)
-            res = OptimizeResult(
-                x=diver_result[1],
-                fun=diver_result[0],
-            )
+            elif self.optimizer == "direct":
+                from scipy.optimize import direct
+                res = direct(target_function_wrapper, bounds, **use_optimizer_kwargs)
 
-        return res, x_points, y_points
+            elif self.optimizer == "iminuit":
+                from iminuit import minimize as iminuit_minimize
+                res = iminuit_minimize(target_function_wrapper, x0, bounds=bounds, **use_optimizer_kwargs)
+                # We need to delete the iminuit.Minuit instance from the result 
+                # (of type scipy.optimize.OptimizeResult), since the Minuit 
+                # instance cannot be pickled and therefore would break parallelization.
+                del(res["minuit"]) 
+
+            elif self.optimizer == "diver":
+                # Note: Diver should be built *without* MPI, to avoid 
+                # interference with binminpy's parallelization. 
+                import diver
+                def diver_target(x, fcall, finish, validvector, context):
+                    finish = False
+                    if not validvector:
+                        objective = 1e300
+                    else: 
+                        objective = target_function_wrapper(x)
+                    return objective, fcall+1, finish
+                diver_opts = copy(use_optimizer_kwargs)
+                diver_opts["lowerbounds"] = [b[0] for b in bounds]
+                diver_opts["upperbounds"] = [b[1] for b in bounds]
+                diver_result = diver.run(diver_target, diver_opts)
+                res = OptimizeResult(
+                    x=diver_result[1],
+                    fun=diver_result[0],
+                )
+
+            # Keep the best result from the repetitions
+            if final_res is None:
+                final_res = res
+            else:
+                if res.fun < final_res.fun:
+                    final_res = res
+
+        return final_res, x_points, y_points
 
 
     def _do_bin_masking(self):

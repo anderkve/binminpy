@@ -13,8 +13,8 @@ np.random.seed(15234 + 1235*rank)
 #     func = 0
 #     for i in range(len(x)-1):
 #         func += (x[i]**2 + x[i+1] - 11.)**2 + (x[i] + x[i+1]**2 - 7.)**2
-#     if func < 80:  # "2 sigma"
-#         func = 1
+#     # if func < 80:  # "2 sigma"
+#     #     func = 1
 #     return func
 
 
@@ -24,8 +24,8 @@ def target_function(x):
     func = 1.0
     for i in range(0,d-1):
         func +=  100 * (x[i+1] - x[i] * x[i])**2 + (1 - x[i])**2   
-    if func < 7.0:  # "2 sigma"
-        func = 1.0
+    # if func < 7.0:  # "2 sigma"
+    #     func = 1.0
     return func
 
 
@@ -40,11 +40,11 @@ if __name__ == "__main__":
     # binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 5)]
     # binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
     # binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
-    # binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
+    # binning_tuples = [(-6, 6, 100), (-6, 6, 100), (-6, 6, 1), (-6, 6, 1)]
 
-    # binning_tuples = [(-5, 10.0, 120), (-5, 10.0, 120), (-5, 10.0, 5), (-5, 10.0, 5)]
+    binning_tuples = [(-5, 10.0, 100), (-5, 10.0, 100), (-5, 10.0, 1), (-5, 10.0, 1)]
     # binning_tuples = [(-5, 10.0, 100), (-5, 10.0, 100), (-5, 10.0, 100)]
-    binning_tuples = [(-5, 10.0, 120), (-5, 10.0, 120), (-5, 10.0, 1), (-5, 10.0, 1)]
+    # binning_tuples = [(-5, 10.0, 60), (-5, 10.0, 60), (-5, 10.0, 60), (-5, 10.0, 60)]
     # binning_tuples = [(-5, 10.0, 30), (-5, 10.0, 30), (-5, 10.0, 120), (-5, 10.0, 120)]
 
 
@@ -63,27 +63,7 @@ if __name__ == "__main__":
     # optimizer and parallelization via multiprocessing.Pool 
     # (parallelization="mpp") using 4 processes.
 
-    # result = binminpy.minimize(
-    #     target_function, 
-    #     binning_tuples, 
-    #     return_evals=False,
-    #     return_bin_centers=True,
-    #     optima_comparison_rtol=1e-6, 
-    #     optima_comparison_atol=1e-4,
-    #     # parallelization="mpi",
-    #     # max_processes=4,
-    #     parallelization="mpi",
-    #     task_distribution="mcmc",
-    #     max_tasks_per_worker=100, # int(1000. / len(binning_tuples)) ,
-    #     n_tasks_per_batch=1, # len(binning_tuples),
-    #     # task_distribution="even",
-    #     # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
-    #     method="L-BFGS-B",
-    #     tol=1e-6,
-    # )
-
-
-    result = binminpy.diver(
+    result = binminpy.minimize(
         target_function, 
         binning_tuples, 
         return_evals=False,
@@ -94,41 +74,69 @@ if __name__ == "__main__":
         # max_processes=4,
         parallelization="mpi",
         task_distribution="mcmc",
-        max_tasks_per_worker=400, # int(1000. / len(binning_tuples)) ,
+        mcmc_options={
+          "initial_step_size": 1,
+          "n_tries_before_step_increase": 2*len(binning_tuples),
+          "n_tries_before_jump": 100*len(binning_tuples),
+          "always_accept_target_below": -np.inf,  # -np.inf,  
+          "always_accept_delta_target_below": 7.,  # 0.
+        },
+        max_tasks_per_worker=200, # int(1000. / len(binning_tuples)) ,
         n_tasks_per_batch=1, # len(binning_tuples),
+        n_restarts_per_bin=1,
         # task_distribution="even",
         # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
-        # diver options:
-        path="diver_output",
-        nDerived=0,
-        discrete=np.array([], dtype=np.int32),
-        partitionDiscrete=False,
-        maxgen=300,
-        NP=15*2,
-        F=np.array([0.7]),
-        Cr=0.9,
-        lmbda=0.0,
-        current=False,
-        expon=False,
-        bndry=1,
-        jDE=True,
-        lambdajDE=True,
-        convthresh=1e-3,
-        convsteps=10,
-        removeDuplicates=True,
-        savecount=1,
-        resume=False,
-        disableIO=True,
-        outputRaw=False,
-        outputSam=False,
-        init_population_strategy=0,
-        discard_unfit_points=False,
-        max_initialisation_attempts=10000,
-        max_acceptable_value=1e6,
-        seed=-1,
-        context=None,
-        verbose=0,
+        method="L-BFGS-B",
+        tol=1e-6,
     )
+
+
+    # result = binminpy.diver(
+    #     target_function, 
+    #     binning_tuples, 
+    #     return_evals=False,
+    #     return_bin_centers=True,
+    #     optima_comparison_rtol=1e-6, 
+    #     optima_comparison_atol=1e-4,
+    #     # parallelization="mpi",
+    #     # max_processes=4,
+    #     parallelization="mpi",
+    #     task_distribution="mcmc",
+    #     max_tasks_per_worker=500, # int(1000. / len(binning_tuples)) ,
+    #     n_tasks_per_batch=1, # len(binning_tuples),
+    #     # task_distribution="even",
+    #     # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
+    #     # diver options:
+    #     path="diver_output",
+    #     nDerived=0,
+    #     discrete=np.array([], dtype=np.int32),
+    #     partitionDiscrete=False,
+    #     maxgen=300,
+    #     NP=15*2,
+    #     F=np.array([0.7]),
+    #     Cr=0.9,
+    #     lmbda=0.0,
+    #     current=False,
+    #     expon=False,
+    #     bndry=1,
+    #     jDE=True,
+    #     lambdajDE=True,
+    #     convthresh=1e-3,
+    #     convsteps=10,
+    #     removeDuplicates=True,
+    #     savecount=1,
+    #     resume=False,
+    #     disableIO=True,
+    #     outputRaw=False,
+    #     outputSam=False,
+    #     init_population_strategy=0,
+    #     discard_unfit_points=False,
+    #     max_initialisation_attempts=10000,
+    #     max_acceptable_value=1e6,
+    #     seed=-1,
+    #     context=None,
+    #     verbose=0,
+    # )
 
 
     
@@ -164,9 +172,9 @@ if __name__ == "__main__":
 
         # Make 2D plots
 
-        # plot_combinations = [(0,1)]
+        plot_combinations = [(0,1)]
         # plot_combinations = [(0,1), (0,2), (1,2)]
-        plot_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
+        # plot_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
 
         for target_dims in plot_combinations:
             min_bin_indices = binminpy.get_min_bins(result["bin_tuples"], result["y_optimal_per_bin"], target_dims=target_dims)
@@ -175,6 +183,7 @@ if __name__ == "__main__":
 
             bin_limits_per_dim = [np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1) for d in target_dims]
             grid_values = np.full((len(bin_limits_per_dim[1]) - 1, len(bin_limits_per_dim[0]) - 1), np.inf)
+            # grid_values = np.full((len(bin_limits_per_dim[1]) - 1, len(bin_limits_per_dim[0]) - 1), np.max(y_data))
             for x, y in zip(x_data_centered, y_data):
                 x0_idx = np.searchsorted(bin_limits_per_dim[0], x[0], side='right') - 1 
                 x1_idx = np.searchsorted(bin_limits_per_dim[1], x[1], side='right') - 1 
@@ -190,6 +199,15 @@ if __name__ == "__main__":
             ax = plt.gca()
             ax.xaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[0]))
             ax.yaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[1]))
+
+            # # Contour plot?
+            # from scipy.interpolate import griddata
+            # x0_binning_tuple = binning_tuples[target_dims[0]]
+            # x1_binning_tuple = binning_tuples[target_dims[1]]
+            # grid_x0, grid_x1 = np.meshgrid(np.linspace(x0_binning_tuple[0], x0_binning_tuple[1], 2*x0_binning_tuple[2]), np.linspace(x1_binning_tuple[0], x1_binning_tuple[1], 2*x0_binning_tuple[2]))
+            # grid_y = griddata((x_data_centered[:,0], x_data_centered[:,1]), y_data, (grid_x0, grid_x1), method='linear')
+            # ax.contour(grid_x0, grid_x1, grid_y, levels=[80], linewidths=2.0, colors='red')
+
             plt.savefig(f"plot_2D_x{target_dims[0]}_x{target_dims[1]}_MCMC.png")
 
 

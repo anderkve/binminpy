@@ -11,11 +11,13 @@ from binminpy.BinnedOptimizer import BinnedOptimizer
 class BinnedOptimizerMPI(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
-                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0, 
-                 task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None):
+                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 n_restarts_per_bin=1, task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
+                 bin_masking=None, mcmc_options={}):
         """Constructor."""
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
-                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, bin_masking)
+                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                         n_restarts_per_bin, bin_masking)
 
         task_distribution = task_distribution.lower()
         if task_distribution not in ["even", "dynamic", "mcmc"]:
@@ -23,6 +25,21 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         self.task_distribution = task_distribution
         self.n_tasks_per_batch = n_tasks_per_batch
         self.max_tasks_per_worker = max_tasks_per_worker
+        self.mcmc_options = mcmc_options
+
+        # Default MCMC options
+        if "initial_step_size" not in self.mcmc_options.keys():
+            self.mcmc_options["initial_step_size"] = 1
+        if "n_tries_before_step_increase" not in self.mcmc_options.keys():
+            self.mcmc_options["n_tries_before_step_increase"] = 2*self.n_dims
+        if "n_tries_before_jump" not in self.mcmc_options.keys():
+            self.mcmc_options["n_tries_before_jump"] = 100*self.n_dims
+
+        if "always_accept_target_below" not in self.mcmc_options.keys():
+            self.mcmc_options["always_accept_target_below"] = -np.inf
+        if "always_accept_delta_target_below" not in self.mcmc_options.keys():
+            self.mcmc_options["always_accept_delta_target_below"] = 0.0
+
 
 
     def run(self):
@@ -336,6 +353,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             x_evals_list = []
             y_evals_list = []
 
+            current_global_ymin = np.inf
 
             #
             # Run MCMC
@@ -383,6 +401,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             while len(finished) < n_walkers:
                 status = MPI.Status()
 
+                print(f"{self.print_prefix} rank {rank}:  Current global ymin: {current_global_ymin}")
+
                 # Block until any worker returns a result.
                 result_tuples = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
                 worker_rank = status.Get_source()
@@ -406,30 +426,33 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
                     logp_vals.append(-1. * opt_result.fun)
+                    # Update current global best-fit value?
+                    if opt_result.fun < current_global_ymin:
+                        current_global_ymin = opt_result.fun
                 logp_vals = np.array(logp_vals)
 
                 # Now order the results according to their logp value (highest first)
-                # and perform the Metropolis test to attempt a move 
+                # and start testing whether or not to accept the proposed moves
                 logp_ordering = np.argsort(logp_vals)[::-1]
                 logp_vals = logp_vals[logp_ordering]
                 proposals = [result_tuples[i][0] for i in logp_ordering]
 
-                # Perform the Metropolis step for the evaluated proposals
                 for proposal, proposal_logp in zip(proposals, logp_vals):
 
                     current_logp = walkers[walker_index]['logp']
                     # Accept the new proposal?
-                    if np.log(np.random.rand()) < (proposal_logp - current_logp):
+                    if ( (proposal_logp > -self.mcmc_options["always_accept_target_below"]) 
+                          or (-current_global_ymin - proposal_logp < self.mcmc_options["always_accept_delta_target_below"])
+                          or (np.log(np.random.rand()) < (proposal_logp - current_logp)) ):
                         walkers[walker_index]['x'] = proposal
                         walkers[walker_index]['logp'] = proposal_logp
                         # If a move is accepted, skip the rest
                         break
 
-
                 # Now collect a batch of proposal steps
                 proposal_batch = []
                 n_tries = 0
-                step_size = 1
+                step_size = self.mcmc_options["initial_step_size"]
                 while (not stop_worker[worker_rank]):
 
                     if n_available_bins <= 0:
@@ -452,9 +475,10 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                         # Initially 50% chance for 0
                         # new_proposal = walkers[walker_index]['x'] + np.random.choice([-1,1], self.n_dims) * np.random.randint(0, step_size+1, self.n_dims)
+                        # new_proposal = new_proposal % np.array(self.n_bins_per_dim)
 
                         # Occasionally jump to a random available bin
-                        if n_tries % (100*self.n_dims) == 0:
+                        if n_tries >= self.mcmc_options["n_tries_before_jump"]:
                             # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Going into the big-jump block!")
                             available_bins = np.argwhere(evaluated_mask == False)
                             # If all bins are evaluated, stop *all* workers as soon as they report back
@@ -477,7 +501,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         if evaluated_mask[tuple(new_proposal)]:
                             # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: Proposal {new_proposal} is an old point! Will try again. n_tries: {n_tries}")
                             # Already evaluated: automatically reject (walker stays at current state).
-                            if n_tries % (2*self.n_dims) == 0:
+                            if n_tries % self.mcmc_options["n_tries_before_step_increase"] == 0:
                                 step_size += 1
                                 print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: step_size --> {step_size}")
                             # print(f"{self.print_prefix} rank {rank}: Finding proposal for rank {worker_rank}: x = {new_proposal} is an old point.", flush=True)

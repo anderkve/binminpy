@@ -11,10 +11,11 @@ class BinnedOptimizerMPP(BinnedOptimizer):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
                  return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 
-                 optima_comparison_atol=0.0, bin_masking=None):
+                 optima_comparison_atol=0.0, n_restarts_per_bin=1, bin_masking=None):
         """Constructor."""
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals, 
-                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, bin_masking)
+                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol,
+                         n_restarts_per_bin, bin_masking)
         self.max_processes = max_processes
 
 
