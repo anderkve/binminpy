@@ -39,8 +39,8 @@ if __name__ == "__main__":
 
     # binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 5)]
     # binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
-    binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
-    # binning_tuples = [(-6, 6, 150), (-6, 6, 150), (-6, 6, 1), (-6, 6, 1)]
+    # binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 30), (-6, 6, 30)]
+    binning_tuples = [(-6, 6, 100), (-6, 6, 100), (-6, 6, 100), (-6, 6, 1)]
 
     # binning_tuples = [(-5, 10.0, 1), (-5, 10.0, 150), (-5, 10.0, 1), (-5, 10.0, 150)]
     # binning_tuples = [(-5, 10.0, 100), (-5, 10.0, 100), (-5, 10.0, 100)]
@@ -63,37 +63,7 @@ if __name__ == "__main__":
     # optimizer and parallelization via multiprocessing.Pool 
     # (parallelization="mpp") using 4 processes.
 
-    result = binminpy.minimize(
-        target_function, 
-        binning_tuples, 
-        return_evals=False,
-        return_bin_centers=True,
-        optima_comparison_rtol=1e-6, 
-        optima_comparison_atol=1e-4,
-        # parallelization="mpi",
-        # max_processes=4,
-        parallelization="mpi",
-        task_distribution="mcmc",
-        mcmc_options={
-          "initial_step_size": 1,
-          "n_tries_before_step_increase": 1*len(binning_tuples),
-          "n_tries_before_jump": 3*len(binning_tuples),
-          "always_accept_target_below": -np.inf,  # -np.inf,  
-          "always_accept_delta_target_below": 80.0, #80.,  # 0.
-          "inherit_min_coords": False,
-          "suggestion_cache_size": 100,
-        },
-        max_tasks_per_worker=5000, # int(1000. / len(binning_tuples)) ,
-        n_tasks_per_batch=1, # len(binning_tuples),
-        n_restarts_per_bin=1,
-        # task_distribution="even",
-        # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
-        method="L-BFGS-B",
-        tol=1e-6,
-    )
-
-
-    # result = binminpy.diver(
+    # result = binminpy.minimize(
     #     target_function, 
     #     binning_tuples, 
     #     return_evals=False,
@@ -108,49 +78,79 @@ if __name__ == "__main__":
     #       "initial_step_size": 1,
     #       "n_tries_before_step_increase": 1*len(binning_tuples),
     #       "n_tries_before_jump": 3*len(binning_tuples),
-    #       # "n_tries_before_change": 1*len(binning_tuples),
     #       "always_accept_target_below": -np.inf,  # -np.inf,  
-    #       "always_accept_delta_target_below": 80.,  # 0.
+    #       "always_accept_delta_target_below": 80.0, #80.,  # 0.
     #       "inherit_min_coords": False,
-    #       "suggestion_cache_size": 100,
+    #       "suggestion_cache_size": 1000, #5*size,
     #     },
-    #     max_tasks_per_worker=4000, #250, # int(1000. / len(binning_tuples)) ,
-    #     # max_tasks_per_worker=2000, # int(1000. / len(binning_tuples)) ,
+    #     max_tasks_per_worker=1000, # int(1000. / len(binning_tuples)) ,
     #     n_tasks_per_batch=1, # len(binning_tuples),
     #     n_restarts_per_bin=1,
     #     # task_distribution="even",
     #     # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
-    #     # diver options:
-    #     path="diver_output",
-    #     nDerived=0,
-    #     discrete=np.array([], dtype=np.int32),
-    #     partitionDiscrete=False,
-    #     maxgen=500,
-    #     NP=30*len(binning_tuples),
-    #     F=np.array([0.7]),
-    #     Cr=0.9,
-    #     lmbda=0.0,
-    #     current=False,
-    #     expon=False,
-    #     bndry=1,
-    #     jDE=True,
-    #     lambdajDE=True,
-    #     convthresh=1e-3,
-    #     convsteps=10,
-    #     removeDuplicates=True,
-    #     savecount=1,
-    #     resume=False,
-    #     disableIO=True,
-    #     outputRaw=False,
-    #     outputSam=False,
-    #     init_population_strategy=0,
-    #     discard_unfit_points=False,
-    #     max_initialisation_attempts=10000,
-    #     max_acceptable_value=1e6,
-    #     seed=-1,
-    #     context=None,
-    #     verbose=0,
+    #     method="L-BFGS-B",
+    #     tol=1e-6,
     # )
+
+
+    result = binminpy.diver(
+        target_function, 
+        binning_tuples, 
+        return_evals=False,
+        return_bin_centers=True,
+        optima_comparison_rtol=1e-6, 
+        optima_comparison_atol=1e-4,
+        # parallelization="mpi",
+        # max_processes=4,
+        parallelization="mpi",
+        task_distribution="mcmc",
+        mcmc_options={
+          "initial_step_size": 1,
+          "n_tries_before_step_increase": 1*len(binning_tuples),
+          "n_tries_before_jump": 3*len(binning_tuples),
+          # "n_tries_before_change": 1*len(binning_tuples),
+          "always_accept_target_below": -np.inf,  # -np.inf,  
+          "always_accept_delta_target_below": 80.,  # 0.
+          "inherit_min_coords": False,
+          "suggestion_cache_size": 1000*size,
+        },
+        max_tasks_per_worker=2500, #250, # int(1000. / len(binning_tuples)) ,
+        # max_tasks_per_worker=2000, # int(1000. / len(binning_tuples)) ,
+        n_tasks_per_batch=1, # len(binning_tuples),
+        n_restarts_per_bin=1,
+        # task_distribution="even",
+        # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
+        # diver options:
+        path="diver_output",
+        nDerived=0,
+        discrete=np.array([], dtype=np.int32),
+        partitionDiscrete=False,
+        maxgen=500,
+        NP=15*len(binning_tuples),
+        F=np.array([0.7]),
+        Cr=0.9,
+        lmbda=0.0,
+        current=False,
+        expon=False,
+        bndry=1,
+        jDE=True,
+        lambdajDE=True,
+        convthresh=1e-3,
+        convsteps=10,
+        removeDuplicates=True,
+        savecount=1,
+        resume=False,
+        disableIO=True,
+        outputRaw=False,
+        outputSam=False,
+        init_population_strategy=0,
+        discard_unfit_points=False,
+        max_initialisation_attempts=10000,
+        max_acceptable_value=1e6,
+        seed=-1,
+        context=None,
+        verbose=0,
+    )
 
 
     
@@ -189,8 +189,8 @@ if __name__ == "__main__":
         # plot_combinations = [(0,1)]
         # plot_combinations = [(1,2)]
         # plot_combinations = [(1,3)]
-        # plot_combinations = [(0,1), (0,2), (1,2)]
-        plot_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
+        plot_combinations = [(0,1), (0,2), (1,2)]
+        # plot_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
 
         for target_dims in plot_combinations:
             min_bin_indices = binminpy.get_min_bins(result["bin_tuples"], result["y_optimal_per_bin"], target_dims=target_dims)

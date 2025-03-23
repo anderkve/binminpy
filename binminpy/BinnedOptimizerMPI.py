@@ -403,8 +403,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             n_available_bins = max_n_bins
 
             # Lists to keep track of each walker
-            walkers = [{"bin": None, "logp": None, "x": None}] * n_walkers
-            iterations = [0] * n_walkers
+            walkers = [{"bin": None, "logp": None, "x": None, "logp_history": []}] * n_walkers
 
             # Dicts to keep track of each MPI worker
             worker_ranks = list(range(1, n_workers+1))
@@ -428,8 +427,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     available_bins = np.argwhere(evaluated_mask == False)
                     bin_indices = available_bins[np.random.choice(available_bins.shape[0])]
 
-                walkers[walker_index] = {"bin": bin_indices, "logp": -np.inf, "x": self.get_bin_center(bin_indices)}
-                iterations[walker_index] = 0
+                walkers[walker_index] = {"bin": bin_indices, "logp": -np.inf, "x": self.get_bin_center(bin_indices), "logp_history": []}
                 evaluated_mask[tuple(bin_indices)] = True
                 n_available_bins -= 1
                 print(f"{self.print_prefix} rank {rank}:  Sending bin {bin_indices} to rank {worker_rank}", flush=True)
@@ -509,8 +507,24 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         walkers[walker_index]["bin"] = proposal
                         walkers[walker_index]["logp"] = proposal_logp
                         walkers[walker_index]["x"] = x_val
+                        # walkers[walker_index]["logp_history"].insert(0, proposal_logp)
                         # Since this move was accepted, skip the rest
                         break
+
+
+                # Has this walker stagnated?
+                logp_history_size = 100
+                walkers[walker_index]["logp_history"].insert(0, proposal_logp)
+                if len(walkers[walker_index]["logp_history"]) > logp_history_size:
+                    walkers[walker_index]["logp_history"].pop()
+                logp_hist = np.array(walkers[walker_index]["logp_history"])
+                logp_increase = np.array([logp_hist[i] - logp_hist[i+1] for i in range(len(logp_hist)-1)])
+                avg_logp_increase = np.mean(logp_increase)
+                if (avg_logp_increase < -1.0) and (len(logp_hist) == logp_history_size):
+                    print(f"DEBUG: Resetting walker {walker_index}.  avg_logp_increase: {avg_logp_increase}")
+                    available_bins = np.argwhere(evaluated_mask == False)
+                    bin_indices = available_bins[np.random.choice(available_bins.shape[0])]
+                    walkers[walker_index] = {"bin": bin_indices, "logp": -np.inf, "x": self.get_bin_center(bin_indices), "logp_history": []}
 
 
                 # Walker move done, now collect a batch of new proposal steps
@@ -527,7 +541,6 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     while len(proposal_batch) < self.n_tasks_per_batch:
 
                         n_tries += 1
-                        iterations[walker_index] += 1
 
                         # Propose a move:
                         # Initially 33% chance for 0
@@ -537,8 +550,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                         # Initially 50% chance for 0
                         # new_proposal = walkers[walker_index]["bin"] + np.random.choice([-1,1], self.n_dims) * np.random.randint(0, step_size+1, self.n_dims)
-                        # new_proposal = np.maximum(new_proposal, np.zeros(self.n_dims))
-                        # new_proposal = np.minimum(new_proposal, np.array(self.n_bins_per_dim) - 1)
+                        # new_proposal = np.maximum(new_proposal, np.zeros(self.n_dims, dtype=int))
+                        # new_proposal = np.minimum(new_proposal, np.array(self.n_bins_per_dim, dtype=int) - 1)
 
                         # Should the step size be increased?
                         if n_tries % self.mcmc_options["n_tries_before_step_increase"] == 0:
@@ -588,8 +601,6 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
                         finished.add(worker_rank)
 
-                if iterations[walker_index] % 100 == 0:
-                    print(f"{self.print_prefix} rank {worker_rank}: The walker has processed {iterations[walker_index]} proposals.", flush=True)
                 if tasks_performed[worker_rank] % 100 == 0:
                     print(f"{self.print_prefix} rank {worker_rank}: {tasks_performed[worker_rank]} tasks performed.", flush=True)
 
