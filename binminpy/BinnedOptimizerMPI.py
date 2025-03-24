@@ -768,11 +768,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 status = MPI.Status()
                 result = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
                 worker_rank = status.Get_source()
-                print(f"{self.print_prefix} rank {rank}:  Got initial optimization result from rank {worker_rank}", flush=True)
 
                 if result is None:
                     worker_index = worker_rank - 1
                     raise Exception(f"{self.print_prefix} Initial optimization failed for worker at rank {worker_rank}, starting from x0 = {x0_points[worker_index]}")
+
+                print(f"{self.print_prefix} rank {rank}: Initial optimization result from rank {worker_rank}: x = {result.x}, y = {result.fun}", flush=True)
 
                 # Save result
                 initial_opt_results.append(result)
@@ -796,7 +797,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             comm.send(res, dest=0, tag=RESULT_TAG)
 
         # Wait here
-        print(f"{self.print_prefix} rank {rank}:  Waiting at barrier after step 1", flush=True)
+        # print(f"{self.print_prefix} rank {rank}: Waiting at barrier after step 1", flush=True)
         comm.Barrier()
 
 
@@ -932,7 +933,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 status = MPI.Status()
 
                 if completed_tasks % 100 == 0:
-                    print(f"{self.print_prefix} rank {rank}: completed_tasks: {completed_tasks}  planned tasks: {len(tasks)}  ongoing tasks: {len(ongoing_tasks)}  available workers: {len(available_workers)}", flush=True)
+                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}", flush=True)
 
                 # Block until any worker returns a result.
                 data = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -981,7 +982,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
             # Done with the given number of tasks, so stop all workers
             for worker_rank in range(1, n_workers+1):
-                print(f"{self.print_prefix} rank {rank}: Sending TERMINATE_TAG to rank {worker_rank}", flush=True)
+                print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank}", flush=True)
                 comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
 
 
@@ -1047,7 +1048,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 # Terminate?
                 if tag == TERMINATE_TAG or data is None:
-                    print(f"{self.print_prefix} rank {rank}: Got TERMINATE_TAG. Will stop working now", flush=True)
+                    print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
                     break
 
                 bin_index_tuple = data

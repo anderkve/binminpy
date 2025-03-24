@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 5)]
     # binning_tuples = [(-6, 6, 60), (-6, 6, 60), (-6, 6, 60)]
     # binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 30), (-6, 6, 30)]
-    binning_tuples = [(-6, 6, 120), (-6, 6, 120), (-6, 6, 1), (-6, 6, 1)]
+    binning_tuples = [(-6, 6, 1), (-6, 6, 1), (-6, 6, 120), (-6, 6, 120)]
 
     # binning_tuples = [(-5, 10.0, 200), (-5, 10.0, 200), (-5, 10.0, 200), (-5, 10.0, 200)]
     # binning_tuples = [(-5, 10.0, 100), (-5, 10.0, 100), (-5, 10.0, 100)]
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         discrete=np.array([], dtype=np.int32),
         partitionDiscrete=False,
         maxgen=500,
-        NP=15*len(binning_tuples),
+        NP=30*len(binning_tuples),
         F=np.array([0.7]),
         Cr=0.9,
         lmbda=0.0,
@@ -187,9 +187,10 @@ if __name__ == "__main__":
 
         # Make 2D plots
 
-        plot_combinations = [(0,1)]
+        # plot_combinations = [(0,1)]
+        # plot_combinations = [(0,3)]
         # plot_combinations = [(1,2)]
-        # plot_combinations = [(1,3)]
+        plot_combinations = [(2,3)]
         # plot_combinations = [(0,1), (0,2), (1,2)]
         # plot_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
 
