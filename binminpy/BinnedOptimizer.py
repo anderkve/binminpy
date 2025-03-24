@@ -38,7 +38,10 @@ class BinnedOptimizer:
         self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
         self.n_bins = np.prod([self.n_bins_per_dim])
         self.bin_limits_per_dim = [np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1) for d in range(self.n_dims)]
-        self.all_bin_index_tuples = list(itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)]))
+
+        # To avoid wasting memory, the self.all_bin_index_tuples variable below
+        # should only be computed if needed, using self.init_all_bin_index_tuples()
+        self.all_bin_index_tuples = None
 
         self.print_prefix = "BinnedOptimizer:"
 
@@ -55,6 +58,19 @@ class BinnedOptimizer:
         if "args" in self.optimizer_kwargs:
             if not isinstance(self.optimizer_kwargs["args"], tuple):
                 self.optimizer_kwargs["args"] = tuple([self.optimizer_kwargs["args"]])
+
+
+    def init_all_bin_index_tuples(self):
+        if self.all_bin_index_tuples is None: 
+            self.all_bin_index_tuples = list(itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)]))
+
+
+    def get_bin_index_tuple(self, x):
+        """Get the bin index tuple for an input point"""
+        bin_widths_per_dim = np.array([(bt[1] - bt[0]) / bt[2] for bt in self.binning_tuples])
+        x_min = np.array([bt[0] for bt in self.binning_tuples])
+        bin_indices = np.array((x - x_min) / bin_widths_per_dim, dtype=int)
+        return tuple(bin_indices)
 
 
     def get_bin_limits(self, bin_index_tuple):
@@ -190,6 +206,8 @@ class BinnedOptimizer:
         use_bin_indices = []
         use_bin_index_tuples = []
 
+        self.init_all_bin_index_tuples()
+
         if self.bin_masking is None:
             use_bin_indices = list(range(len(self.all_bin_index_tuples)))
             use_bin_index_tuples = self.all_bin_index_tuples
@@ -208,6 +226,8 @@ class BinnedOptimizer:
     def run(self):
         """Start the optimization"""
 
+        self.init_all_bin_index_tuples()
+        
         output = {
             "x_optimal": None,
             "y_optimal": None,

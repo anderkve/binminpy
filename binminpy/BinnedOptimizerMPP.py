@@ -22,6 +22,8 @@ class BinnedOptimizerMPP(BinnedOptimizer):
     def run(self):
         """Start the optimization using multiprocessing.Pool for parallel execution"""
 
+        self.init_all_bin_index_tuples()
+
         output = {
             "x_optimal": None,
             "y_optimal": None,

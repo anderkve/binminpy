@@ -22,6 +22,8 @@ class BinnedOptimizerPPE(BinnedOptimizer):
     def run(self):
         """Start the optimization"""
 
+        self.init_all_bin_index_tuples()
+
         output = {
             "x_optimal": None,
             "y_optimal": None,
