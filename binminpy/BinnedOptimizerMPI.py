@@ -435,7 +435,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 walkers[walker_index] = {"bin": bin_indices, "logp": -np.inf, "x": self.get_bin_center(bin_indices), "logp_history": []}
                 evaluated_mask[tuple(bin_indices)] = True
                 n_available_bins -= 1
-                print(f"{self.print_prefix} rank {rank}:  Sending bin {bin_indices} to rank {worker_rank}", flush=True)
+                print(f"{self.print_prefix} rank {rank}: Sending bin {bin_indices} to rank {worker_rank}", flush=True)
                 comm.send(([bin_indices], None), dest=worker_rank, tag=TASK_TAG)
 
             # Now on to the asynchronous loop, to process results as they come.
@@ -443,7 +443,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             while len(finished) < n_walkers:
                 status = MPI.Status()
 
-                print(f"{self.print_prefix} rank {rank}:  Current global ymin: {current_global_ymin}  add_suggestion.max_y: {add_suggestion.max_y}  len(bin_suggestion_cache): {len(bin_suggestion_cache)}", flush=True)
+                print(f"{self.print_prefix} rank {rank}: Current global ymin: {current_global_ymin}  add_suggestion.max_y: {add_suggestion.max_y}  len(bin_suggestion_cache): {len(bin_suggestion_cache)}", flush=True)
 
                 # Block until any worker returns a result.
                 result_tuples = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -712,7 +712,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
     def run_bottomup_task_distribution(self):
         """Run the optimization using an MPI master-worker scheme that first finds
-        bins of local/global minima, and then selects new bins by "growing" outwards
+        bins of local minima, and then selects new bins by "growing" outwards
         from these initial bins.
 
         Returns:
@@ -738,16 +738,10 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         RESULT_TAG = 2
         TERMINATE_TAG = 3
 
+
         # 
-        # Step 1: 
-        # - Gradient optimization across entire input space
+        # Step 1: Each worker finds a local minimum (from the full input space)
         #
-        # - Rank 0: Do latin hypercube sampling for starting points
-        # - Rank 0: Send out optimization tasks
-        # - Rank 0: Collect results
-        # - Worker: Listen for optimization task
-        # - Worker: Wait at barrier
-        # 
 
         if rank == 0:
             # Limits for the full input space
@@ -802,17 +796,16 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             comm.send(res, dest=0, tag=RESULT_TAG)
 
         # Wait here
-        print(f"{self.print_prefix} rank {rank}:  Waiting at barrier after step 1.", flush=True)
+        print(f"{self.print_prefix} rank {rank}:  Waiting at barrier after step 1", flush=True)
         comm.Barrier()
 
 
         # 
-        # Step 2: 
-        # - Rank 0: Find the (sorted) set of bins that contain the set of found optima
-        # - Worker: wait
+        # Step 2: Use optimization results to construct initial set of tasks
         #
 
         if rank == 0:
+
             # Collect pairs (target value, bin tuple for best-fit point) in a sorted list
             initial_opt_tuples = []
             for res in initial_opt_results:
@@ -825,19 +818,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             # Register current best target value
             current_global_ymin = initial_opt_tuples[0][0]
 
-        print(f"{self.print_prefix} rank {rank}:  Waiting at barrier after step 2.", flush=True)
-        comm.Barrier()
 
-
-        #
-        # Step 3: 
-        # - Rank 0: For each initial bin, collect neighboring bins until we have enough tasks
-        # - Rank 0: Send out tasks
-        # - Worker: wait
-        #
-
-        if rank == 0:
-
+            # Start constructing the initial set of tasks
             collected_bins = set()
             completed_tasks = 0
             ongoing_tasks = []
@@ -853,6 +835,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
 
             # Now we want to add more tasks by collecting neighbors 
+            # First some helper functions
 
             # Helper function #1 
             def generate_offsets(dim, distance):
@@ -928,23 +911,9 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 comm.send(new_task, dest=worker_rank, tag=TASK_TAG)
                 ongoing_tasks.append(new_task)
 
-        # else: 
-        #     # Worker process: Send a dummy result to let rank 0 know 
-        #     # this process is ready for a task
-        #     comm.send(None, dest=0, tag=RESULT_TAG)
-
-
-        # print(f"{self.print_prefix} rank {rank}:  Waiting at barrier after step 3.", flush=True)
-        # comm.Barrier()
 
         #
-        # Step 4: 
-        # - While loop: 
-        #   - Rank 0: Listen for finished tasks
-        #   - Rank 0: If recieved result is within threshold, add new neighbor bins to task list
-        #   - Rank 0: Send out new task
-        #   - Worker: Listen for task message
-        #   - Worker: Do task
+        # Step 4: Main work loop
         #
 
         if rank == 0:
@@ -958,18 +927,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             x_evals_list = []
             y_evals_list = []
 
-            # completed_tasks = 0
-            # ongoing_tasks = dict.fromkeys
-            # stop_worker = dict.fromkeys(worker_ranks, False)
-            # ongoing_tasks = []
-            # available_workers = []
-            # available_workers = list(range(1, n_workers+1)) 
-
             while completed_tasks < self.mcmc_options["max_n_bins"]:
 
                 status = MPI.Status()
 
-                print(f"DEBUG: completed_tasks: {completed_tasks}  planned tasks: {len(tasks)}  ongoing tasks: {len(ongoing_tasks)}  available workers: {len(available_workers)}", flush=True)
+                if completed_tasks % 100 == 0:
+                    print(f"{self.print_prefix} rank {rank}: completed_tasks: {completed_tasks}  planned tasks: {len(tasks)}  ongoing tasks: {len(ongoing_tasks)}  available workers: {len(available_workers)}", flush=True)
 
                 # Block until any worker returns a result.
                 data = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -1069,12 +1032,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "y_evals": y_evals,
             }
 
-            # return output
-
 
         #
         # Worker process
         #
+
         else:
             # Worker process: receive bins to optimize until termination signal is received.
             rank = comm.Get_rank()
@@ -1093,20 +1055,16 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 x0 = self.get_bin_center(bin_index_tuple)
                 # Now run the worker function for this bin
                 result = self._worker_function(bin_index_tuple, x0_in=x0)
-                print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
+                # print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
                 comm.send((bin_index_tuple, result), dest=0, tag=RESULT_TAG)
 
             # This MPI process is done now
             output = None
 
 
-        print(f"{self.print_prefix} rank {rank}:  Waiting at the final barrier.", flush=True)
+        # All together now
+        print(f"{self.print_prefix} rank {rank}: Waiting at the final barrier", flush=True)
         comm.Barrier()
         return output
-
-
-
-
-
 
 
