@@ -4,7 +4,6 @@ from copy import copy
 import warnings
 import itertools
 from mpi4py import MPI
-from scipy.stats import qmc
 import bisect
 
 from binminpy.BinnedOptimizer import BinnedOptimizer
@@ -109,16 +108,18 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             all_optimizer_results = [None] * self.n_bins
             x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
             y_optimal_per_bin = np.full((self.n_bins,), np.inf)
+            n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
 
             for proc_dict in gathered_results:
                 for task_index, result in proc_dict.items():
                     bin_index = use_bin_indices[task_index]
-                    opt_result, x_points, y_points = result
+                    opt_result, n_target_calls, x_points, y_points = result
                     all_optimizer_results[bin_index] = opt_result
                     x_optimal_per_bin[bin_index] = opt_result.x
                     y_optimal_per_bin[bin_index] = opt_result.fun
+                    n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
@@ -162,6 +163,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
                 "all_optimizer_results": all_optimizer_results,
+                "n_target_calls": n_target_calls_total,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
@@ -207,6 +209,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             all_optimizer_results = [None] * self.n_bins
             x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
             y_optimal_per_bin = np.full((self.n_bins,), np.inf)
+            n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
 
@@ -227,10 +230,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 # Process received results.
                 for task_index, result in result_dict.items():
                     bin_index = use_bin_indices[task_index]
-                    opt_result, x_points, y_points = result
+                    opt_result, n_target_calls, x_points, y_points = result
                     all_optimizer_results[bin_index] = opt_result
                     x_optimal_per_bin[bin_index] = opt_result.x
                     y_optimal_per_bin[bin_index] = opt_result.fun
+                    n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
@@ -283,6 +287,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
                 "all_optimizer_results": all_optimizer_results,
+                "n_target_calls": n_target_calls_total,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
@@ -318,6 +323,8 @@ class BinnedOptimizerMPI(BinnedOptimizer):
           On rank 0: a dictionary containing global optimization results.
           On other ranks: None.
         """
+        from scipy.stats.qmc import LatinHypercube
+
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
@@ -394,6 +401,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             bin_centers = []
             x_optimal_per_bin = []
             y_optimal_per_bin = []
+            n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
 
@@ -416,7 +424,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             stop_worker = dict.fromkeys(worker_ranks, False)
 
             # Use latin hypercube sampling to get starting points for the walkers
-            lh_sampler = qmc.LatinHypercube(d=self.n_dims)
+            lh_sampler = LatinHypercube(d=self.n_dims)
             lh_samples = lh_sampler.random(n=n_walkers)
             lh_samples = np.array(np.floor(lh_samples * np.array(self.n_bins_per_dim)), dtype=int)
 
@@ -460,11 +468,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 logp_vals = []
                 x_vals = []
                 for proposal, result in result_tuples:
-                    opt_result, x_points, y_points = result
+                    opt_result, n_target_calls, x_points, y_points = result
                     all_optimizer_results.append(opt_result)
                     bin_tuples.append(tuple(proposal))
                     x_optimal_per_bin.append(opt_result.x)
                     y_optimal_per_bin.append(opt_result.fun)
+                    n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
@@ -659,6 +668,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),
                 "all_optimizer_results": all_optimizer_results,
+                "n_target_calls": n_target_calls_total,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
@@ -705,10 +715,6 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
 
 
-# =========================================
-
-# _Anders
-
 
     def run_bottomup_task_distribution(self):
         """Run the optimization using an MPI master-worker scheme that first finds
@@ -721,6 +727,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         """
         from itertools import product
         from scipy.optimize import minimize
+        from scipy.stats.qmc import LatinHypercube
 
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
@@ -744,12 +751,17 @@ class BinnedOptimizerMPI(BinnedOptimizer):
         #
 
         if rank == 0:
+
+            n_target_calls_total = 0
+            x_evals_list = []
+            y_evals_list = []
+
             # Limits for the full input space
             x_lower_lims = np.array([bt[0] for bt in self.binning_tuples])
             x_upper_lims = np.array([bt[1] for bt in self.binning_tuples])
 
             # Use latin hypercube sampling to get starting points for initial optimization
-            lh_sampler = qmc.LatinHypercube(d=self.n_dims)
+            lh_sampler = LatinHypercube(d=self.n_dims)
             x0_points = x_lower_lims + lh_sampler.random(n=n_workers) * (x_upper_lims - x_lower_lims)
 
             # Send out initial optimization tasks, using the full input space as bounds
@@ -773,28 +785,74 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     worker_index = worker_rank - 1
                     raise Exception(f"{self.print_prefix} Initial optimization failed for worker at rank {worker_rank}, starting from x0 = {x0_points[worker_index]}")
 
-                print(f"{self.print_prefix} rank {rank}: Initial optimization result from rank {worker_rank}: x = {result.x}, y = {result.fun}", flush=True)
+                opt_result, n_target_calls, x_points, y_points = result
+                print(f"{self.print_prefix} rank {rank}: Initial optimization result from rank {worker_rank}: x = {opt_result.x}, y = {opt_result.fun}", flush=True)
 
-                # Save result
-                initial_opt_results.append(result)
+                n_target_calls_total += n_target_calls
+                if self.return_evals:
+                    x_evals_list.extend(x_points)
+                    y_evals_list.extend(y_points)
+
+                # Save optimization result
+                initial_opt_results.append(opt_result)
 
         else: 
             # Worker process: receive optimization task, perform it, and wait at barrier
             opt_task_tuple = comm.recv(source=0, tag=TASK_TAG)
             x0, bounds = opt_task_tuple
 
+            x_points = []
+            y_points = []
+
+            # Wrapper for the target function, to allow us to save the evaluations
+            def target_function_wrapper(x, *args):
+                target_function_wrapper.calls += 1
+                y = self.target_function(x, *args)
+                if self.return_evals:
+                    x_points.append(copy(x))
+                    y_points.append(copy(y))
+                return y
+            target_function_wrapper.calls = 0
+
             args = (),
             if "args" in self.optimizer_kwargs.keys():
                 args = self.optimizer_kwargs["args"]
 
             try:
-                res = minimize(self.target_function, x0, bounds=bounds, args=args)
+                # TODO: Allow user control of the optimizer settings here
+                res = minimize(target_function_wrapper, x0, bounds=bounds, args=args)
             except ValueError as e:
                 warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
                 use_optimizer_kwargs["method"] = "trust-constr"
-                res = minimize(self.target_function, x0, bounds=bounds, args=args)
+                res = minimize(target_function_wrapper, x0, bounds=bounds, args=args)
 
-            comm.send(res, dest=0, tag=RESULT_TAG)
+            return_tuple = (res, target_function_wrapper.calls, x_points, y_points)
+
+            # _Anders
+            import h5py
+            hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
+            hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
+            with h5py.File(hdf5_filename, 'a') as f:
+                for i,dset_name in enumerate(hdf5_dset_names):
+                    if dset_name in f:
+                        continue
+                    else:
+                        f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
+
+                    if dset_name[0] == "x":
+                        new_data = np.array(x_points)[:,i]
+                    elif dset_name == "y":
+                        new_data = np.array(y_points)
+                    dset = f[dset_name]
+                    current_size = dset.shape[0]
+                    new_size = new_data.shape[0]
+                    dset.resize(current_size + new_size, axis=0)
+                    dset[current_size: current_size + new_size] = new_data
+
+                # Get rid of the x_points and y_points to save memory
+                return_tuple = (res, target_function_wrapper.calls, [], [])
+
+            comm.send(return_tuple, dest=0, tag=RESULT_TAG)
 
         # Wait here
         # print(f"{self.print_prefix} rank {rank}: Waiting at barrier after step 1", flush=True)
@@ -821,16 +879,16 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
 
             # Start constructing the initial set of tasks
-            collected_bins = set()
             completed_tasks = 0
             ongoing_tasks = []
             available_workers = list(range(1, n_workers+1)) 
-
             tasks = []
+            planned_and_completed_tasks = set()
+
             for y_val, bin_index_tuple in initial_opt_tuples:
-                if bin_index_tuple not in tasks:
+                if bin_index_tuple not in planned_and_completed_tasks:
+                    planned_and_completed_tasks.add(bin_index_tuple)
                     tasks.append(bin_index_tuple)
-                    collected_bins.add(bin_index_tuple)
 
             if len(tasks) == 0:
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
@@ -848,13 +906,11 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     if sum(abs(x) for x in offset) == distance:
                         yield offset
 
+
             # Helper function #2
             def collect_n_neighbor_bins(input_bin, num_bins):
-                # global collected_bins
-                
                 new_bins = []
                 dim = len(input_bin)
-                
                 # Start at Manhattan distance 1 and increase until we collect enough bins.
                 distance = 1
                 while len(new_bins) < num_bins:
@@ -864,35 +920,24 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                         candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
                         candidate = tuple(candidate)
-
-                        # Only collect if we haven't already seen this point.
-                        if candidate not in collected_bins:
-                            collected_bins.add(candidate)
-                            new_bins.append(candidate)
-                            if len(new_bins) == num_bins:
-                                break
+                        new_bins.append(candidate)
+                        if len(new_bins) == num_bins:
+                            break
                     distance += 1
                 return new_bins
 
+
             # Helper function #3
-            def collect_neighbor_bins_within_dist(input_bin, distance):
-                # global collected_bins
-                
+            def collect_neighbor_bins_within_dist(input_bin, distance):                
                 new_bins = []
                 dim = len(input_bin)
-                
                 # Generate all offsets for the current distance.
                 for offset in generate_offsets(dim, distance):
                     candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
                     candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                     candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
                     candidate = tuple(candidate)
-
-                    # Only collect if we haven't already seen this point.
-                    if candidate not in collected_bins:
-                        collected_bins.add(candidate)
-                        new_bins.append(candidate)
-
+                    new_bins.append(candidate)
                 return new_bins
 
 
@@ -900,9 +945,9 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             if len(tasks) < n_workers:
                 new_bin_tuples = collect_n_neighbor_bins(initial_opt_tuples[0][1], n_workers - len(tasks))
                 for new_bin_index_tuple in new_bin_tuples:
-                    if new_bin_index_tuple not in tasks:
+                    if new_bin_index_tuple not in planned_and_completed_tasks:
+                        planned_and_completed_tasks.add(new_bin_index_tuple)
                         tasks.append(new_bin_index_tuple)
-                        collected_bins.add(bin_index_tuple)
 
 
             # Send out initial tasks
@@ -925,15 +970,15 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             bin_centers = []
             x_optimal_per_bin = []
             y_optimal_per_bin = []
-            x_evals_list = []
-            y_evals_list = []
+            # The other containers (x_evals_list, y_evals_list, 
+            # n_target_calls_total) where created during step 1 
 
             while completed_tasks < self.mcmc_options["max_n_bins"]:
 
                 status = MPI.Status()
 
                 if completed_tasks % 100 == 0:
-                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}", flush=True)
+                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
 
                 # Block until any worker returns a result.
                 data = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -943,11 +988,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 if data is not None:
 
                     current_bin_index_tuple, result = data
-                    opt_result, x_points, y_points = result
+                    opt_result, n_target_calls, x_points, y_points = result
                     all_optimizer_results.append(opt_result)
                     bin_tuples.append(current_bin_index_tuple)
                     x_optimal_per_bin.append(opt_result.x)
                     y_optimal_per_bin.append(opt_result.fun)
+                    n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
                         y_evals_list.extend(y_points)
@@ -961,9 +1007,12 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                         new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, 1)
 
-                        for bin_index_tuple in new_bin_tuples:
-                            if bin_index_tuple not in tasks:
-                                tasks.append(bin_index_tuple)
+                        # TODO: Can implement an upper bound on the number of planned tasks here
+                        if len(tasks) < np.inf:
+                            for bin_index_tuple in new_bin_tuples:
+                                if bin_index_tuple not in planned_and_completed_tasks:
+                                    planned_and_completed_tasks.add(bin_index_tuple)
+                                    tasks.append(bin_index_tuple)
 
                     completed_tasks += 1
                     ongoing_tasks.remove(current_bin_index_tuple)
@@ -1029,6 +1078,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),
                 "all_optimizer_results": all_optimizer_results,
+                "n_target_calls": n_target_calls_total,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
@@ -1042,22 +1092,56 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             # Worker process: receive bins to optimize until termination signal is received.
             rank = comm.Get_rank()
             status = MPI.Status()
-            while True:
-                data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
-                tag = status.Get_tag()
 
-                # Terminate?
-                if tag == TERMINATE_TAG or data is None:
-                    print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
-                    break
+            # _Anders
+            import h5py
+            hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
+            hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
+            with h5py.File(hdf5_filename, 'a') as f:
+                for dset_name in hdf5_dset_names:
+                    if dset_name in f:
+                        continue
+                    else:
+                        f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
 
-                bin_index_tuple = data
-                bounds = np.array(self.get_bin_limits(bin_index_tuple))
-                x0 = self.get_bin_center(bin_index_tuple)
-                # Now run the worker function for this bin
-                result = self._worker_function(bin_index_tuple, x0_in=x0)
-                # print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
-                comm.send((bin_index_tuple, result), dest=0, tag=RESULT_TAG)
+            with h5py.File(hdf5_filename, 'a') as f:
+
+                while True:
+
+                    data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
+                    tag = status.Get_tag()
+
+                    # Terminate?
+                    if tag == TERMINATE_TAG or data is None:
+                        print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
+                        break
+
+                    bin_index_tuple = data
+                    bounds = np.array(self.get_bin_limits(bin_index_tuple))
+                    x0 = self.get_bin_center(bin_index_tuple)
+                    # Now run the worker function for this bin
+                    result = self._worker_function(bin_index_tuple, x0_in=x0)
+
+                    # Write to file
+                    opt_result, n_target_calls, x_evals, y_evals = result
+                    for i,dset_name in enumerate(hdf5_dset_names):
+                        if dset_name[0] == "x":
+                            new_data = np.array(x_evals)[:,i]
+                        elif dset_name == "y":
+                            new_data = np.array(y_evals)
+                        dset = f[dset_name]
+                        current_size = dset.shape[0]
+                        new_size = new_data.shape[0]
+                        dset.resize(current_size + new_size, axis=0)
+                        dset[current_size: current_size + new_size] = new_data
+
+                    # Get rid of the data in 'result' to save memory
+                    result = (opt_result, n_target_calls, [], [])
+
+                    # print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
+                    comm.send((bin_index_tuple, result), dest=0, tag=RESULT_TAG)
+
+                # Closing file here
 
             # This MPI process is done now
             output = None

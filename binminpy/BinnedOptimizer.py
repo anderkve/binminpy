@@ -45,7 +45,7 @@ class BinnedOptimizer:
 
         self.print_prefix = "BinnedOptimizer:"
 
-        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"]
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
@@ -107,11 +107,13 @@ class BinnedOptimizer:
 
         # Wrapper for the target function, to allow us to save the evaluations
         def target_function_wrapper(x, *args):
+            target_function_wrapper.calls += 1
             y = self.target_function(x, *args)
             if self.return_evals:
-                x_points.append(x)
-                y_points.append(y)
+                x_points.append(copy(x))
+                y_points.append(copy(y))
             return y
+        target_function_wrapper.calls = 0
 
         # Do the optimization and store the result
         final_res = None
@@ -190,6 +192,63 @@ class BinnedOptimizer:
                     fun=diver_result[0],
                 )
 
+            elif self.optimizer == "bincenter":
+                # This "optimizer" simply evaluates the target 
+                # function once at the center of the bin. 
+                x = self.get_bin_center(bin_index_tuple)
+                y = target_function_wrapper(x)
+                res = OptimizeResult(
+                    x=x,
+                    fun=y,
+                )
+
+            elif self.optimizer == "random":
+                # This "optimizer" simply evaluates the target 
+                # function at random points within the bin. 
+                n_random_points = use_optimizer_kwargs["n_random_points"]
+                current_x_best = None
+                current_y_min = np.inf
+                for i in range(n_random_points):
+                    x = self.get_random_point_in_bin(bin_index_tuple)
+                    y = target_function_wrapper(x)
+                    if y < current_y_min:
+                        current_x_best = x
+                        current_y_min = y
+                res = OptimizeResult(
+                    x=current_x_best,
+                    fun=current_y_min,
+                )
+
+            elif self.optimizer == "latinhypercube":
+                # This "optimizer" simply evaluates the target 
+                # function at a set of points within the bin sampled 
+                # by latin hypercube sampling
+                from scipy.stats.qmc import LatinHypercube
+
+                n_hypercube_points = use_optimizer_kwargs["n_hypercube_points"]
+                current_x_best = None
+                current_y_min = np.inf
+
+                # Limits for the full input space
+                x_lower_lims = np.array([b[0] for b in bounds])
+                x_upper_lims = np.array([b[1] for b in bounds])
+                
+                # Use latin hypercube sampling to get starting points for initial optimization
+                lh_sampler = LatinHypercube(d=self.n_dims)
+                lh_x_points = x_lower_lims + lh_sampler.random(n=n_hypercube_points) * (x_upper_lims - x_lower_lims)
+
+                for i in range(n_hypercube_points):
+                    x = lh_x_points[i]
+                    y = target_function_wrapper(x)
+                    if y < current_y_min:
+                        current_x_best = x
+                        current_y_min = y
+                res = OptimizeResult(
+                    x=current_x_best,
+                    fun=current_y_min,
+                )
+
+
             # Keep the best result from the repetitions
             if final_res is None:
                 final_res = res
@@ -197,7 +256,7 @@ class BinnedOptimizer:
                 if res.fun < final_res.fun:
                     final_res = res
 
-        return final_res, x_points, y_points
+        return final_res, target_function_wrapper.calls, x_points, y_points
 
 
     def _do_bin_masking(self):
@@ -237,6 +296,7 @@ class BinnedOptimizer:
             "x_optimal_per_bin": np.full((self.n_bins, self.n_dims), np.nan),
             "y_optimal_per_bin": np.full((self.n_bins,), np.inf),
             "all_optimizer_results": [None] * self.n_bins,
+            "n_target_calls": 0,
             "x_evals": None,
             "y_evals": None,
         }
@@ -255,11 +315,11 @@ class BinnedOptimizer:
             bin_index_tuple = self.all_bin_index_tuples[bin_index]
             task_number = task_index + 1
             worker_output = self._worker_function(bin_index_tuple)
-
-            opt_result, x_points, y_points = worker_output
+            opt_result, n_target_calls, x_points, y_points = worker_output
             output["all_optimizer_results"][bin_index] = opt_result
             output["x_optimal_per_bin"][bin_index] = opt_result.x
             output["y_optimal_per_bin"][bin_index] = opt_result.fun
+            output["n_target_calls"] += n_target_calls
             if self.return_evals:
                 x_evals_list.extend(x_points)
                 y_evals_list.extend(y_points)

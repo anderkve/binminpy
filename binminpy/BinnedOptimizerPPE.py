@@ -32,6 +32,7 @@ class BinnedOptimizerPPE(BinnedOptimizer):
             "x_optimal_per_bin": np.full((self.n_bins, self.n_dims), np.nan),
             "y_optimal_per_bin": np.full((self.n_bins,), np.inf),
             "all_optimizer_results": [None] * self.n_bins,
+            "n_target_calls": 0,
             "x_evals": None,
             "y_evals": None,
         }
@@ -57,10 +58,11 @@ class BinnedOptimizerPPE(BinnedOptimizer):
                 bin_index_tuple = use_bin_index_tuples[task_index]
                 task_number = task_index + 1
 
-                opt_result, x_points, y_points = worker_output
+                opt_result, n_target_calls, x_points, y_points = worker_output
                 output["all_optimizer_results"][bin_index] = opt_result
                 output["x_optimal_per_bin"][bin_index] = opt_result.x
                 output["y_optimal_per_bin"][bin_index] = opt_result.fun
+                output["n_target_calls"] += n_target_calls
                 if self.return_evals:
                     x_evals_list.extend(x_points)
                     y_evals_list.extend(y_points)

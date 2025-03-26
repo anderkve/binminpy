@@ -250,3 +250,52 @@ def diver(fun, binning_tuples, return_evals=False, return_bin_centers=True,
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           mcmc_options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
+
+
+def bincenter(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+              optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+              n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+              mcmc_options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Simply evaluate the target function at the center of each bin."""
+
+    optimizer = "bincenter"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          mcmc_options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
+
+
+
+def random(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+           optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+           mcmc_options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Simply evaluate the target function at the center of each bin."""
+
+    optimizer = "random"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          mcmc_options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
+
+
+
+def latinhypercube(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+                   optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+                   n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+                   mcmc_options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Use latin hypercube sampling to evaluate the target at a fixed number of
+    points within each bin.
+    """
+
+    optimizer = "latinhypercube"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          mcmc_options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
