@@ -5,9 +5,9 @@ from copy import copy
 import warnings
 import itertools
 
-from binminpy.BinnedOptimizer import BinnedOptimizer
+from binminpy.BinMin import BinMin
 
-class BinnedOptimizerMPP(BinnedOptimizer):
+class BinMinMPP(BinMin):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
                  return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 

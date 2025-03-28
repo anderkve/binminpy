@@ -6,7 +6,7 @@ import warnings
 import itertools
 
 
-class BinnedOptimizer:
+class BinMin:
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
                  return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 
@@ -43,7 +43,7 @@ class BinnedOptimizer:
         # should only be computed if needed, using self.init_all_bin_index_tuples()
         self.all_bin_index_tuples = None
 
-        self.print_prefix = "BinnedOptimizer:"
+        self.print_prefix = "BinMin:"
 
         known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
         if self.optimizer not in known_optimizers:
@@ -51,7 +51,7 @@ class BinnedOptimizer:
 
         if "bounds" in self.optimizer_kwargs:
             if self.optimizer_kwargs["bounds"] is not None:
-                warnings.warn("BinnedOptimizer will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+                warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
             del(self.optimizer_kwargs["bounds"])
 
         # Ensure that self.optimizer_kwargs["args"] is a tuple 
@@ -113,6 +113,7 @@ class BinnedOptimizer:
                 x_points.append(copy(x))
                 y_points.append(copy(y))
             return y
+
         target_function_wrapper.calls = 0
 
         # Do the optimization and store the result

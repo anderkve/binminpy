@@ -17,9 +17,9 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
 
     # Run binned optimization with the requested parallelization.
     if parallelization == "serial":
-        from binminpy.BinnedOptimizer import BinnedOptimizer
+        from binminpy.BinMin import BinMin
         
-        binned_opt = BinnedOptimizer(
+        binned_opt = BinMin(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -35,8 +35,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "mpp":
-        from binminpy.BinnedOptimizerMPP import BinnedOptimizerMPP
-        binned_opt = BinnedOptimizerMPP(
+        from binminpy.BinMinMPP import BinMinMPP
+        binned_opt = BinMinMPP(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -53,8 +53,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "ppe":
-        from binminpy.BinnedOptimizerPPE import BinnedOptimizerPPE
-        binned_opt = BinnedOptimizerPPE(
+        from binminpy.BinMinPPE import BinMinPPE
+        binned_opt = BinMinPPE(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -71,8 +71,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "mpi":
-        from binminpy.BinnedOptimizerMPI import BinnedOptimizerMPI
-        binned_opt = BinnedOptimizerMPI(
+        from binminpy.BinMinMPI import BinMinMPI
+        binned_opt = BinMinMPI(
             fun,
             binning_tuples,
             optimizer=optimizer,

@@ -17,6 +17,12 @@ def target_function(x, *args):
     #     func = 1
     return func
 
+def modified_target_function(x, *args):
+    """A multi-dimensional version of the Himmelblau function."""
+    func = target_function(x)
+    contour_chi2 = (func - 80.)**2 / 4**2
+    return contour_chi2
+
 
 # def target_function(x, *args):
 #     """A multi-dimensional version of the Rosenbrock function."""
@@ -33,8 +39,70 @@ def target_function(x, *args):
 if __name__ == "__main__":
 
 
+    binning_tuples = [[-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1]]
+
+    result = binminpy.latinhypercube(
+        target_function, 
+        # modified_target_function, 
+        binning_tuples, 
+        return_evals=True,
+        return_bin_centers=True,
+        optima_comparison_rtol=1e-6, 
+        optima_comparison_atol=1e-4,
+        # parallelization="mpi",
+        # max_processes=4,
+        parallelization="mpi",
+        task_distribution="bottomup",
+        mcmc_options={
+          # "initial_step_size": 1,
+          # "n_tries_before_step_increase": 1*len(binning_tuples),
+          # "n_tries_before_jump": 3*len(binning_tuples),
+          "always_accept_target_below": -np.inf,  # -np.inf,  
+          "always_accept_delta_target_below": 100., # 40.,  # 90.0, #80.,  # 0.
+          # "inherit_min_coords": False,
+          # "suggestion_cache_size": 1000*size, #5*size,
+          "max_n_bins": int(np.prod([bt[2] for bt in binning_tuples])),
+        },
+        max_tasks_per_worker=750, # int(1000. / len(binning_tuples)) ,
+        n_tasks_per_batch=1, # len(binning_tuples),
+        n_restarts_per_bin=1,
+        # task_distribution="even",
+        # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
+        #
+        # latinhypercube options:
+        #
+        n_hypercube_points=2, # 50
+    )
+
+
+    #
+    # Print some results to screen
+    #
+
+    if rank == 0:
+        best_bins = result["optimal_bins"]
+        print(f"# Global optima found in bin(s) {best_bins}:")
+        for i,bin_index_tuple in enumerate(best_bins):
+            print(f"- Bin {bin_index_tuple}:")
+            print(f"  - x: {result['x_optimal'][i]}")
+            print(f"  - y: {result['y_optimal'][i]}")
+        print()
+
+        n_bins_evaluated = len(result["bin_tuples"])
+        max_n_bins = np.prod([bt[2] for bt in binning_tuples])
+        print(f"Bins evaluated: {n_bins_evaluated} / {max_n_bins}")
+        print()
+        print(f"Target function calls: {result['n_target_calls']}")
+        print()
+
+
+
+
+
+
     # n_bins = 20
-    n_bins = 80
+    n_bins = 60
+    # n_bins = 1
     # dim_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
     # dim_combinations = [(0,1)]
     dim_combinations = [(0,1,2,3)]
@@ -51,6 +119,7 @@ if __name__ == "__main__":
         # binning_tuples = [(-6, 6, 1), (-6, 6, 1), (-6, 6, 120), (-6, 6, 120)]
         # binning_tuples = [(-6, 6, 10), (-6, 6, 10), (-6, 6, 1), (-6, 6, 1)]
 
+        # binning_tuples = [[-6, 6, 1], [-6, 6, 1]]
         binning_tuples = [[-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1]]
         # binning_tuples = [[-5, 10, 1], [-5, 10, 1], [-5, 10, 1], [-5, 10, 1]]
         for dim in dim_combo:
@@ -109,7 +178,8 @@ if __name__ == "__main__":
 
 
         result = binminpy.latinhypercube(
-            target_function, 
+            # target_function, 
+            modified_target_function, 
             binning_tuples, 
             return_evals=True,
             return_bin_centers=True,
@@ -124,20 +194,20 @@ if __name__ == "__main__":
               # "n_tries_before_step_increase": 1*len(binning_tuples),
               # "n_tries_before_jump": 3*len(binning_tuples),
               "always_accept_target_below": -np.inf,  # -np.inf,  
-              "always_accept_delta_target_below": 100., # 40.,  # 90.0, #80.,  # 0.
+              "always_accept_delta_target_below": 4.0,  #100., # 40.,  # 90.0, #80.,  # 0.
               # "inherit_min_coords": False,
               # "suggestion_cache_size": 1000*size, #5*size,
               "max_n_bins": int(np.prod([bt[2] for bt in binning_tuples])),
             },
             max_tasks_per_worker=750, # int(1000. / len(binning_tuples)) ,
-            n_tasks_per_batch=1, # len(binning_tuples),
+            n_tasks_per_batch=100, # len(binning_tuples),
             n_restarts_per_bin=1,
             # task_distribution="even",
             # bin_masking=bin_masking,  # <- Activate to use the bin_masking function
             #
             # latinhypercube options:
             #
-            n_hypercube_points=2, # 50
+            n_hypercube_points=10, # 50
         )
 
 
@@ -246,8 +316,8 @@ if __name__ == "__main__":
         #     nDerived=0,
         #     discrete=np.array([], dtype=np.int32),
         #     partitionDiscrete=False,
-        #     maxgen=500, #4,
-        #     NP=15*len(binning_tuples),
+        #     maxgen=80, #4,
+        #     NP=700*len(binning_tuples), #7000*len(binning_tuples),
         #     F=np.array([0.7]),
         #     Cr=0.9,
         #     lmbda=0.0,
@@ -255,8 +325,8 @@ if __name__ == "__main__":
         #     expon=False,
         #     bndry=1,
         #     jDE=True,
-        #     lambdajDE=True,
-        #     convthresh=1e-3,
+        #     lambdajDE=False,
+        #     convthresh=1e-12,
         #     convsteps=10,
         #     removeDuplicates=True,
         #     savecount=1,
@@ -335,12 +405,22 @@ if __name__ == "__main__":
         # data["x2"] = result["x_evals"][:,2]
         # data["x3"] = result["x_evals"][:,3]
 
-        # data["loglike"] = -1 * np.min(result["y_evals"]) - 3.09 / 80. * result["y_evals"]
+        n_data_points = len(data["x0"])
+        y_vals = np.zeros(n_data_points)
+        for i in range(n_data_points):
+            # x = np.array([data["x0"][i], data["x1"][i], data["x2"][i], data["x3"][i]])
+            x = np.array([data["x0"][i], data["x1"][i]])
+            y_vals[i] = target_function(x)
+        data["y"] = y_vals
+
+
+        # data["loglike"] = -1 * data["y"]
+        # data["loglike"] = - 3.09 / 80. * data["y"]
         data["loglike"] = -1 * np.min(data["y"]) - 3.09 / 80. * data["y"]
         # data["loglike"] = -1 * np.min(data["y"]) - 3.09 / 20. * data["y"]
-        n_data_points = len(data["loglike"])
 
-        confidence_levels = [0.683, 0.954]
+        # confidence_levels = [0.683, 0.954]
+        confidence_levels = [0.954]
         # confidence_levels = []
         likelihood_ratio_contour_values = plot_utils.get_2D_likelihood_ratio_levels(confidence_levels)
 
@@ -348,7 +428,7 @@ if __name__ == "__main__":
             "x0", 
             "x1", 
             "x2",
-            "x3",
+            # "x3",
             # "x4",
         ]
         y_keys = [
@@ -443,6 +523,7 @@ if __name__ == "__main__":
                     # Make scatter plot
                     fig, ax = plot_utils.create_empty_figure_2D(xy_bounds, plot_settings)
                     ax.set_facecolor("black")
+                    # ax.scatter(data[x_key], data[y_key], s=1.5, color='yellow', marker='.', linewidths=0.0, alpha=0.05)
                     ax.scatter(data[x_key], data[y_key], s=1.5, color='yellow', marker='.', linewidths=0.0, alpha=0.05)
                     plt.xlabel(plot_labels[x_key], fontsize=plot_settings["fontsize"], labelpad=plot_settings["xlabel_pad"])
                     plt.ylabel(plot_labels[y_key], fontsize=plot_settings["fontsize"], labelpad=plot_settings["ylabel_pad"])

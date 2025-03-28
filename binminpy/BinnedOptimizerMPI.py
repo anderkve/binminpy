@@ -6,9 +6,9 @@ import itertools
 from mpi4py import MPI
 import bisect
 
-from binminpy.BinnedOptimizer import BinnedOptimizer
+from binminpy.BinMin import BinMin
 
-class BinnedOptimizerMPI(BinnedOptimizer):
+class BinMinMPI(BinMin):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, max_processes=1, 
                  return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
@@ -812,6 +812,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                     x_points.append(copy(x))
                     y_points.append(copy(y))
                 return y
+
             target_function_wrapper.calls = 0
 
             args = (),
@@ -876,7 +877,6 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
             # Register current best target value
             current_global_ymin = initial_opt_tuples[0][0]
-
 
             # Start constructing the initial set of tasks
             completed_tasks = 0
@@ -950,12 +950,14 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         tasks.append(new_bin_index_tuple)
 
 
-            # Send out initial tasks
+            # Send out initial batches of tasks
             while tasks and available_workers:
                 worker_rank = available_workers.pop(0)
-                new_task = tasks.pop(0)
-                comm.send(new_task, dest=worker_rank, tag=TASK_TAG)
-                ongoing_tasks.append(new_task)
+                use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
+                batch = tuple(tasks[0:use_batch_size])                
+                tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
+                comm.send(batch, dest=worker_rank, tag=TASK_TAG)
+                ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
 
 
         #
@@ -973,12 +975,15 @@ class BinnedOptimizerMPI(BinnedOptimizer):
             # The other containers (x_evals_list, y_evals_list, 
             # n_target_calls_total) where created during step 1 
 
+            print_counter = 0
             while completed_tasks < self.mcmc_options["max_n_bins"]:
+                print_counter += 1
 
                 status = MPI.Status()
 
-                if completed_tasks % 100 == 0:
+                if print_counter % 100 == 0:
                     print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
+                    print_counter = 0
 
                 # Block until any worker returns a result.
                 data = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
@@ -987,43 +992,45 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 if data is not None:
 
-                    current_bin_index_tuple, result = data
-                    opt_result, n_target_calls, x_points, y_points = result
-                    all_optimizer_results.append(opt_result)
-                    bin_tuples.append(current_bin_index_tuple)
-                    x_optimal_per_bin.append(opt_result.x)
-                    y_optimal_per_bin.append(opt_result.fun)
-                    n_target_calls_total += n_target_calls
-                    if self.return_evals:
-                        x_evals_list.extend(x_points)
-                        y_evals_list.extend(y_points)
-                    # Update current global best-fit value?
-                    if opt_result.fun < current_global_ymin:
-                        current_global_ymin = opt_result.fun
+                    # 'data' is a list of (bin_index_tuple, result) pairs
+                    for current_bin_index_tuple, result in data:
+                        opt_result, n_target_calls, x_points, y_points = result
+                        all_optimizer_results.append(opt_result)
+                        bin_tuples.append(current_bin_index_tuple)
+                        x_optimal_per_bin.append(opt_result.x)
+                        y_optimal_per_bin.append(opt_result.fun)
+                        n_target_calls_total += n_target_calls
+                        if self.return_evals:
+                            x_evals_list.extend(x_points)
+                            y_evals_list.extend(y_points)
+                        # Update current global best-fit value?
+                        if opt_result.fun < current_global_ymin:
+                            current_global_ymin = opt_result.fun
 
-                    # If this bin is considered interesting, add neighbor bins to the task list
-                    if ( (opt_result.fun < self.mcmc_options["always_accept_target_below"])
-                          or (opt_result.fun - current_global_ymin < self.mcmc_options["always_accept_delta_target_below"]) ):
+                        # If this bin is considered interesting, add neighbor bins to the task list
+                        if ( (opt_result.fun < self.mcmc_options["always_accept_target_below"])
+                              or (opt_result.fun - current_global_ymin < self.mcmc_options["always_accept_delta_target_below"]) ):
 
-                        new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, 1)
+                            new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, 1)
 
-                        # TODO: Can implement an upper bound on the number of planned tasks here
-                        if len(tasks) < np.inf:
-                            for bin_index_tuple in new_bin_tuples:
-                                if bin_index_tuple not in planned_and_completed_tasks:
-                                    planned_and_completed_tasks.add(bin_index_tuple)
-                                    tasks.append(bin_index_tuple)
+                            # TODO: Can implement an upper bound on the number of planned tasks here
+                            if len(tasks) < np.inf:
+                                for bin_index_tuple in new_bin_tuples:
+                                    if bin_index_tuple not in planned_and_completed_tasks:
+                                        planned_and_completed_tasks.add(bin_index_tuple)
+                                        tasks.append(bin_index_tuple)
 
-                    completed_tasks += 1
-                    ongoing_tasks.remove(current_bin_index_tuple)
-
+                        completed_tasks += 1
+                        ongoing_tasks.remove(current_bin_index_tuple)
 
                 # Now send out as many new tasks as possible
                 while tasks and available_workers:
                     worker_rank = available_workers.pop(0)
-                    new_task = tasks.pop(0)
-                    comm.send(new_task, dest=worker_rank, tag=TASK_TAG)
-                    ongoing_tasks.append(new_task)
+                    use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
+                    batch = tuple(tasks[0:use_batch_size])                
+                    tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
+                    comm.send(batch, dest=worker_rank, tag=TASK_TAG)
+                    ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
 
                 # No more work to do? Break out of while loop
                 if (not tasks) and (not ongoing_tasks):
@@ -1108,6 +1115,7 @@ class BinnedOptimizerMPI(BinnedOptimizer):
 
                 while True:
 
+                    # Wait here for a new message
                     data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
                     tag = status.Get_tag()
 
@@ -1116,35 +1124,46 @@ class BinnedOptimizerMPI(BinnedOptimizer):
                         print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
                         break
 
-                    bin_index_tuple = data
-                    bounds = np.array(self.get_bin_limits(bin_index_tuple))
-                    x0 = self.get_bin_center(bin_index_tuple)
-                    # Now run the worker function for this bin
-                    result = self._worker_function(bin_index_tuple, x0_in=x0)
+                    # Do the tasks in the batch
+                    batch = data
+                    results = []
+                    x_evals_collected = []
+                    y_evals_collected = []
+                    for bin_index_tuple in batch:
+
+                        bounds = np.array(self.get_bin_limits(bin_index_tuple))
+                        x0 = self.get_bin_center(bin_index_tuple)
+                        # Now run the worker function for this bin
+                        result = self._worker_function(bin_index_tuple, x0_in=x0)
+
+                        # Extract results
+                        opt_result, n_target_calls, x_evals, y_evals = result    
+                        x_evals_collected.extend(x_evals)
+                        y_evals_collected.extend(y_evals)
+                        return_result = (opt_result, n_target_calls, [], [])
+                        results.append((bin_index_tuple, return_result))
 
                     # Write to file
-                    opt_result, n_target_calls, x_evals, y_evals = result
                     for i,dset_name in enumerate(hdf5_dset_names):
                         if dset_name[0] == "x":
-                            new_data = np.array(x_evals)[:,i]
+                            new_data = np.array(x_evals_collected)[:,i]
                         elif dset_name == "y":
-                            new_data = np.array(y_evals)
+                            new_data = np.array(y_evals_collected)
                         dset = f[dset_name]
                         current_size = dset.shape[0]
                         new_size = new_data.shape[0]
                         dset.resize(current_size + new_size, axis=0)
                         dset[current_size: current_size + new_size] = new_data
 
-                    # Get rid of the data in 'result' to save memory
-                    result = (opt_result, n_target_calls, [], [])
-
+                    # Send back results for the entire batch
                     # print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
-                    comm.send((bin_index_tuple, result), dest=0, tag=RESULT_TAG)
+                    comm.send(results, dest=0, tag=RESULT_TAG)
 
                 # Closing file here
 
             # This MPI process is done now
             output = None
+
 
 
         # All together now
