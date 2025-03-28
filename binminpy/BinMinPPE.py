@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from copy import copy
 import warnings
 import itertools
@@ -49,8 +50,11 @@ class BinMinPPE(BinMin):
         # Use ProcessPoolExecutor for parallel execution
         with ProcessPoolExecutor(max_workers=self.max_processes) as executor:
 
+            # Use functools.partial to fix a keyword argument in self._worker_function
+            worker_function_partial = partial(self._worker_function, return_evals=self.return_evals)
+
             # Create a generator for all the tasks
-            task_mapping = executor.map(self._worker_function, use_bin_index_tuples)
+            task_mapping = executor.map(worker_function_partial, use_bin_index_tuples)
 
             # Now execute the tasks in parallel and collect the results 
             for task_index, worker_output in enumerate(task_mapping):

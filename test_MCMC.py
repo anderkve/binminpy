@@ -53,7 +53,7 @@ if __name__ == "__main__":
         # max_processes=4,
         parallelization="mpi",
         task_distribution="bottomup",
-        mcmc_options={
+        options={
           # "initial_step_size": 1,
           # "n_tries_before_step_increase": 1*len(binning_tuples),
           # "n_tries_before_jump": 3*len(binning_tuples),
@@ -155,7 +155,7 @@ if __name__ == "__main__":
         #     # max_processes=4,
         #     parallelization="mpi",
         #     task_distribution="bottomup",
-        #     mcmc_options={
+        #     options={
         #       # "initial_step_size": 1,
         #       # "n_tries_before_step_increase": 1*len(binning_tuples),
         #       # "n_tries_before_jump": 3*len(binning_tuples),
@@ -189,7 +189,7 @@ if __name__ == "__main__":
             # max_processes=4,
             parallelization="mpi",
             task_distribution="bottomup",
-            mcmc_options={
+            options={
               # "initial_step_size": 1,
               # "n_tries_before_step_increase": 1*len(binning_tuples),
               # "n_tries_before_jump": 3*len(binning_tuples),
@@ -222,7 +222,7 @@ if __name__ == "__main__":
         #     # max_processes=4,
         #     parallelization="mpi",
         #     task_distribution="bottomup",
-        #     mcmc_options={
+        #     options={
         #       # "initial_step_size": 1,
         #       # "n_tries_before_step_increase": 1*len(binning_tuples),
         #       # "n_tries_before_jump": 3*len(binning_tuples),
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         #     # max_processes=4,
         #     parallelization="mpi",
         #     task_distribution="bottomup",
-        #     mcmc_options={
+        #     options={
         #       # "initial_step_size": 1,
         #       # "n_tries_before_step_increase": 1*len(binning_tuples),
         #       # "n_tries_before_jump": 3*len(binning_tuples),
@@ -293,7 +293,7 @@ if __name__ == "__main__":
         #     # max_processes=4,
         #     parallelization="mpi",
         #     task_distribution="bottomup",
-        #     mcmc_options={
+        #     options={
         #       # "initial_step_size": 1,
         #       # "n_tries_before_step_increase": 1*len(binning_tuples),
         #       # "n_tries_before_jump": 3*len(binning_tuples),

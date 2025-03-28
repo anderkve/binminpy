@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from multiprocessing import Pool
+from functools import partial
 from copy import copy
 import warnings
 import itertools
@@ -48,8 +49,10 @@ class BinMinMPP(BinMin):
 
         # Use multiprocessing Pool for parallel execution.
         with Pool(processes=self.max_processes) as pool:
+            # Use functools.partial to fix a keyword argument in self._worker_function
+            worker_function_partial = partial(self._worker_function, return_evals=self.return_evals)
             # pool.map returns a list of results
-            task_results = pool.map(self._worker_function, use_bin_index_tuples)
+            task_results = pool.map(worker_function_partial, use_bin_index_tuples)
 
             # Collect the results.
             for task_index, worker_output in enumerate(task_results):

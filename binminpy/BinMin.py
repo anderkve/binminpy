@@ -97,7 +97,7 @@ class BinMin:
         return random_point
 
 
-    def _worker_function(self, bin_index_tuple, x0_in=None):
+    def _worker_function(self, bin_index_tuple, return_evals=False, x0_in=None):
         """Function to optimize the target function within a set of bounds"""
         bounds = self.get_bin_limits(bin_index_tuple)
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
@@ -109,7 +109,7 @@ class BinMin:
         def target_function_wrapper(x, *args):
             target_function_wrapper.calls += 1
             y = self.target_function(x, *args)
-            if self.return_evals:
+            if return_evals:
                 x_points.append(copy(x))
                 y_points.append(copy(y))
             return y
@@ -315,7 +315,7 @@ class BinMin:
         for task_index, bin_index in enumerate(use_bin_indices):
             bin_index_tuple = self.all_bin_index_tuples[bin_index]
             task_number = task_index + 1
-            worker_output = self._worker_function(bin_index_tuple)
+            worker_output = self._worker_function(bin_index_tuple, return_evals=self.return_evals)
             opt_result, n_target_calls, x_points, y_points = worker_output
             output["all_optimizer_results"][bin_index] = opt_result
             output["x_optimal_per_bin"][bin_index] = opt_result.x
