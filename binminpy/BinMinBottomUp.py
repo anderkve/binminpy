@@ -7,16 +7,20 @@ from mpi4py import MPI
 import bisect
 from itertools import product
 from scipy.optimize import minimize
+from scipy.optimize import OptimizeResult
 from scipy.stats.qmc import LatinHypercube
 
-from binminpy.BinMin import BinMin
+from binminpy.BinMin import BinMinBase
 
-class BinMinBottomUp(BinMin):
+class BinMinBottomUp(BinMinBase):
 
-    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, save_evals=False,
-                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
-                 bin_masking=None, options={}):
+    def __init__(self, target_function, binning_tuples, args=(), 
+                 sampler="latinhypercube", sampler_kwargs={}, 
+                 optimizer="minimize", optimizer_kwargs={},
+                 n_sampler_points_per_bin = 10,
+                 save_evals=False, return_evals=False, return_bin_centers=True, 
+                 optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, options={}):
         """Constructor."""
 
         comm = MPI.COMM_WORLD
@@ -26,20 +30,144 @@ class BinMinBottomUp(BinMin):
         if size == 1:
             raise Exception(f"{self.print_prefix} The 'bottomup' task distribution needs more than one MPI process.")
 
-        super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
-                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                         n_restarts_per_bin, bin_masking)
+        super().__init__(binning_tuples)
+
+        self.target_function = target_function
+
+        self.sampler = sampler
+        self.sampler_kwargs = sampler_kwargs
+        self.optimizer = optimizer
+        self.optimizer_kwargs = optimizer_kwargs
+        self.n_sampler_points_per_bin = n_sampler_points_per_bin
 
         self.save_evals = save_evals
+        self.return_evals = return_evals
+        self.return_bin_centers = return_bin_centers
+
+        self.optima_comparison_rtol = optima_comparison_rtol
+        self.optima_comparison_atol = optima_comparison_atol
+        self.n_restarts_per_bin = n_restarts_per_bin
+
         self.n_tasks_per_batch = n_tasks_per_batch
         self.max_tasks_per_worker = max_tasks_per_worker
         self.options = options
 
-        # Default bottomup options
+        known_samplers = ["latinhypercube"]
+        if self.sampler not in known_samplers:
+            raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
+
+        known_optimizers = ["minimize"]
+        if self.optimizer not in known_optimizers:
+            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
+
+        # Some default options
         if "always_accept_target_below" not in self.options.keys():
             self.options["always_accept_target_below"] = -np.inf
         if "always_accept_delta_target_below" not in self.options.keys():
             self.options["always_accept_delta_target_below"] = 0.0
+
+        self.print_prefix = "BinMinBottomUp:"
+
+        known_optimizers_and_samplers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
+        if self.sampler not in known_optimizers_and_samplers:
+            raise Exception(f"Unknown sampler '{self.optimizer}'. The known optimizers are {known_optimizers_and_samplers}.")
+        if self.optimizer not in known_optimizers:
+            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers_and_samplers}.")
+
+        if "bounds" in self.sampler_kwargs:
+            if self.sampler_kwargs["bounds"] is not None:
+                warnings.warn("BinMin will override the 'bounds' entry provided via the 'sampler_kwargs' dictionary.")
+            del(self.sampler_kwargs["bounds"])
+
+        if "bounds" in self.optimizer_kwargs:
+            if self.optimizer_kwargs["bounds"] is not None:
+                warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+            del(self.optimizer_kwargs["bounds"])
+
+        if not isinstance(args, tuple):
+            args = tuple([args])
+        if "args" in sampler_kwargs.keys():
+            warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'sampler_kwargs' dictionary.")
+            sampler_kwargs["args"] = args
+        if "args" in optimizer_kwargs.keys():
+            warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'optimizer_kwargs' dictionary.")
+            optimizer_kwargs["args"] = args
+
+
+
+
+    def _worker_function(self, bin_index_tuple, return_evals=False, x0_in=None):
+        """Function to optimize the target function within a set of bounds"""
+        bounds = self.get_bin_limits(bin_index_tuple)
+        use_optimizer_kwargs = copy(self.optimizer_kwargs)
+
+        x_points = []
+        y_points = []
+
+        # Wrapper for the target function, to allow us to save the evaluations
+        def target_function_wrapper(x, *args):
+            target_function_wrapper.calls += 1
+            y = self.target_function(x, *args)
+            if return_evals:
+                x_points.append(copy(x))
+                y_points.append(copy(y))
+            return y
+
+        target_function_wrapper.calls = 0
+
+        # Do the sampling + optimization and store the result
+        final_res = None
+        for run_i in range(self.n_restarts_per_bin):
+
+            # Initial point (for optimizers that need this)
+            if run_i == 0:
+                if x0_in is None:
+                    x0 = self.get_bin_center(bin_index_tuple)
+                else:
+                    x0 = x0_in
+            else:
+                x0 = self.get_random_point_in_bin(bin_index_tuple)
+
+            # 
+            # Do the sampling
+            #
+
+            if self.sampler == "latinhypercube":
+
+                # Limits for the full input space
+                x_lower_lims = np.array([b[0] for b in bounds])
+                x_upper_lims = np.array([b[1] for b in bounds])
+                
+                # Do the sampling
+                lh_sampler = LatinHypercube(d=self.n_dims)
+                lh_x_points = x_lower_lims + lh_sampler.random(n=self.n_sampler_points_per_bin) * (x_upper_lims - x_lower_lims)
+
+                # Determine the best point
+                current_x_best = None
+                current_y_min = np.inf
+                for x in lh_x_points:
+                    y = target_function_wrapper(x)
+                    if y < current_y_min:
+                        current_x_best = x
+                        current_y_min = y
+                res = OptimizeResult(
+                    x=current_x_best,
+                    fun=current_y_min,
+                )
+
+
+            # 
+            # TODO: Do the optimization
+            # 
+
+            # Keep the best result from the repetitions
+            if final_res is None:
+                final_res = res
+            else:
+                if res.fun < final_res.fun:
+                    final_res = res
+
+        return final_res, target_function_wrapper.calls, x_points, y_points
 
 
 

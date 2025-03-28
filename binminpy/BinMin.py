@@ -6,63 +6,14 @@ import warnings
 import itertools
 
 
-class BinMin:
+class BinMinBase:
 
-    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
-                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 
-                 optima_comparison_atol=0.0, n_restarts_per_bin=1, bin_masking=None):
-        """Constructor.
-
-        Parameters:
-          target_function: function to optimize.
-          binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
-          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"].
-          optimizer_kwargs: additional keyword arguments for the optimizer.
-          return_evals: if True, record evaluations.
-          optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
-          bin_masking: a function on the form bin_masking(bin_centre, bin_limits) -> True/False.
-        """
-
-        self.target_function = target_function
+    def __init__(self, binning_tuples):
         self.binning_tuples = binning_tuples
-        self.optimizer = optimizer
-        self.optimizer_kwargs = optimizer_kwargs
-        self.return_evals = return_evals
-        self.return_bin_centers = return_bin_centers
-        self.optima_comparison_rtol = optima_comparison_rtol
-        self.optima_comparison_atol = optima_comparison_atol
-        self.n_restarts_per_bin = n_restarts_per_bin
-        self.bin_masking = bin_masking
-
         self.n_dims = len(binning_tuples)
         self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
         self.n_bins = np.prod([self.n_bins_per_dim])
         self.bin_limits_per_dim = [np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1) for d in range(self.n_dims)]
-
-        # To avoid wasting memory, the self.all_bin_index_tuples variable below
-        # should only be computed if needed, using self.init_all_bin_index_tuples()
-        self.all_bin_index_tuples = None
-
-        self.print_prefix = "BinMin:"
-
-        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
-        if self.optimizer not in known_optimizers:
-            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
-
-        if "bounds" in self.optimizer_kwargs:
-            if self.optimizer_kwargs["bounds"] is not None:
-                warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
-            del(self.optimizer_kwargs["bounds"])
-
-        # Ensure that self.optimizer_kwargs["args"] is a tuple 
-        if "args" in self.optimizer_kwargs:
-            if not isinstance(self.optimizer_kwargs["args"], tuple):
-                self.optimizer_kwargs["args"] = tuple([self.optimizer_kwargs["args"]])
-
-
-    def init_all_bin_index_tuples(self):
-        if self.all_bin_index_tuples is None: 
-            self.all_bin_index_tuples = list(itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)]))
 
 
     def get_bin_index_tuple(self, x):
@@ -95,6 +46,68 @@ class BinMin:
         bin_limits = np.array(self.get_bin_limits(bin_index_tuple))
         random_point = bin_limits[:,0] + np.random.random(self.n_dims) * (bin_limits[:,1] - bin_limits[:,0])
         return random_point
+
+
+
+
+class BinMin(BinMinBase):
+
+    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
+                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, 
+                 optima_comparison_atol=0.0, n_restarts_per_bin=1, bin_masking=None):
+        """Constructor.
+
+        Parameters:
+          target_function: function to optimize.
+          binning_tuples: list of tuples [(min, max, n_bins), ...] for each dimension.
+          optimizer: string, one of ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"].
+          optimizer_kwargs: additional keyword arguments for the optimizer.
+          return_evals: if True, record evaluations.
+          optima_comparison_rtol, optima_comparison_atol: tolerances for comparing optima.
+          bin_masking: a function on the form bin_masking(bin_centre, bin_limits) -> True/False.
+        """
+
+        super().__init__(binning_tuples)
+
+        self.target_function = target_function
+        self.optimizer = optimizer
+        self.optimizer_kwargs = optimizer_kwargs
+        self.return_evals = return_evals
+        self.return_bin_centers = return_bin_centers
+        self.optima_comparison_rtol = optima_comparison_rtol
+        self.optima_comparison_atol = optima_comparison_atol
+        self.n_restarts_per_bin = n_restarts_per_bin
+        self.bin_masking = bin_masking
+
+        # self.n_dims = len(binning_tuples)
+        # self.n_bins_per_dim = [bt[2] for bt in binning_tuples]
+        # self.n_bins = np.prod([self.n_bins_per_dim])
+        # self.bin_limits_per_dim = [np.linspace(binning_tuples[d][0], binning_tuples[d][1], binning_tuples[d][2] + 1) for d in range(self.n_dims)]
+
+        # To avoid wasting memory, the self.all_bin_index_tuples variable below
+        # should only be computed if needed, using self.init_all_bin_index_tuples()
+        self.all_bin_index_tuples = None
+
+        self.print_prefix = "BinMin:"
+
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
+        if self.optimizer not in known_optimizers:
+            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
+
+        if "bounds" in self.optimizer_kwargs:
+            if self.optimizer_kwargs["bounds"] is not None:
+                warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+            del(self.optimizer_kwargs["bounds"])
+
+        # Ensure that self.optimizer_kwargs["args"] is a tuple 
+        if "args" in self.optimizer_kwargs:
+            if not isinstance(self.optimizer_kwargs["args"], tuple):
+                self.optimizer_kwargs["args"] = tuple([self.optimizer_kwargs["args"]])
+
+
+    def init_all_bin_index_tuples(self):
+        if self.all_bin_index_tuples is None: 
+            self.all_bin_index_tuples = list(itertools.product(*[range(self.n_bins_per_dim[d]) for d in range(self.n_dims)]))
 
 
     def _worker_function(self, bin_index_tuple, return_evals=False, x0_in=None):
@@ -234,7 +247,7 @@ class BinMin:
                 x_lower_lims = np.array([b[0] for b in bounds])
                 x_upper_lims = np.array([b[1] for b in bounds])
                 
-                # Use latin hypercube sampling to get starting points for initial optimization
+                # Do the sampling
                 lh_sampler = LatinHypercube(d=self.n_dims)
                 lh_x_points = x_lower_lims + lh_sampler.random(n=n_hypercube_points) * (x_upper_lims - x_lower_lims)
 

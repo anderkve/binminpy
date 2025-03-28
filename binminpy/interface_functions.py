@@ -71,41 +71,23 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "mpi":
-        if task_distribution == "bottomup":
-            from binminpy.BinMinBottomUp import BinMinBottomUp
-            binned_opt = BinMinBottomUp(
-                fun,
-                binning_tuples,
-                optimizer=optimizer,
-                optimizer_kwargs=optimizer_kwargs,
-                return_evals=return_evals,
-                return_bin_centers=return_bin_centers,
-                optima_comparison_rtol=optima_comparison_rtol,
-                optima_comparison_atol=optima_comparison_atol,
-                n_restarts_per_bin=n_restarts_per_bin,
-                options=options,
-                n_tasks_per_batch=n_tasks_per_batch,
-                max_tasks_per_worker=max_tasks_per_worker,
-                bin_masking=bin_masking,
-            )
-        else:
-            from binminpy.BinMinMPI import BinMinMPI
-            binned_opt = BinMinMPI(
-                fun,
-                binning_tuples,
-                optimizer=optimizer,
-                optimizer_kwargs=optimizer_kwargs,
-                return_evals=return_evals,
-                return_bin_centers=return_bin_centers,
-                optima_comparison_rtol=optima_comparison_rtol,
-                optima_comparison_atol=optima_comparison_atol,
-                n_restarts_per_bin=n_restarts_per_bin,
-                task_distribution=task_distribution,
-                options=options,
-                n_tasks_per_batch=n_tasks_per_batch,
-                max_tasks_per_worker=max_tasks_per_worker,
-                bin_masking=bin_masking,
-            )
+        from binminpy.BinMinMPI import BinMinMPI
+        binned_opt = BinMinMPI(
+            fun,
+            binning_tuples,
+            optimizer=optimizer,
+            optimizer_kwargs=optimizer_kwargs,
+            return_evals=return_evals,
+            return_bin_centers=return_bin_centers,
+            optima_comparison_rtol=optima_comparison_rtol,
+            optima_comparison_atol=optima_comparison_atol,
+            n_restarts_per_bin=n_restarts_per_bin,
+            task_distribution=task_distribution,
+            options=options,
+            n_tasks_per_batch=n_tasks_per_batch,
+            max_tasks_per_worker=max_tasks_per_worker,
+            bin_masking=bin_masking,
+        )
         output = binned_opt.run()
         return output
 
