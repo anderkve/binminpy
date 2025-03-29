@@ -60,13 +60,13 @@ z_keys = [
     "loglike",
 ]
 
-dataset_bounds = {}
-# dataset_bounds = {
-#     "x0": [-6, 6],
-#     "x1": [-6, 6],
-#     "x2": [-6, 6],
-#     "x3": [-6, 6],
-# }
+# dataset_bounds = {}
+dataset_bounds = {
+    "x0": [-6, 6],
+    "x1": [-6, 6],
+    "x2": [-6, 6],
+    "x3": [-6, 6],
+}
 
 # Specify some pretty plot labels?
 plot_labels = {
@@ -141,7 +141,7 @@ for z_key in z_keys:
             # Make scatter plot
             fig, ax = plot_utils.create_empty_figure_2D(xy_bounds, plot_settings)
             ax.set_facecolor("black")
-            ax.scatter(data[x_key], data[y_key], s=1.5, color='yellow', marker='.', linewidths=0.0, alpha=0.05)
+            ax.scatter(data[x_key], data[y_key], s=1.5, color='yellow', marker='.', linewidths=0.0, alpha=1.0) #alpha=0.05)
             plt.xlabel(plot_labels[x_key], fontsize=plot_settings["fontsize"], labelpad=plot_settings["xlabel_pad"])
             plt.ylabel(plot_labels[y_key], fontsize=plot_settings["fontsize"], labelpad=plot_settings["ylabel_pad"])
             plt.xticks(fontsize=plot_settings["fontsize"])

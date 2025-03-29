@@ -15,12 +15,16 @@ from binminpy.BinMin import BinMinBase
 class BinMinBottomUp(BinMinBase):
 
     def __init__(self, target_function, binning_tuples, args=(), 
+                 guide_function=None, bin_check_function=None,
                  sampler="latinhypercube", sampler_kwargs={}, 
                  optimizer="minimize", optimizer_kwargs={},
-                 n_sampler_points_per_bin = 10,
+                 n_sampler_points_per_bin=10,
+                 accept_target_below=-np.inf, accept_delta_target_below=0.0,
+                 accept_guide_below=-np.inf, accept_delta_guide_below=0.0,
                  save_evals=False, return_evals=False, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, options={}):
+                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
+                 max_n_bins=np.inf):
         """Constructor."""
 
         comm = MPI.COMM_WORLD
@@ -32,13 +36,30 @@ class BinMinBottomUp(BinMinBase):
 
         super().__init__(binning_tuples)
 
+        if not isinstance(args, tuple):
+            args = tuple([args])
+
         self.target_function = target_function
+        self.args = args
+
+        self.guide_function = guide_function
+        if self.guide_function is None:
+            self.guide_function = self._default_guide_function
+
+        self.bin_check_function = bin_check_function
+        if self.bin_check_function is None:
+            self.bin_check_function = self._default_bin_check_function
 
         self.sampler = sampler
         self.sampler_kwargs = sampler_kwargs
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
         self.n_sampler_points_per_bin = n_sampler_points_per_bin
+
+        self.accept_target_below = accept_target_below,
+        self.accept_delta_target_below = accept_delta_target_below,
+        self.accept_guide_below = accept_guide_below,
+        self.accept_delta_guide_below = accept_delta_guide_below,
 
         self.save_evals = save_evals
         self.return_evals = return_evals
@@ -50,7 +71,7 @@ class BinMinBottomUp(BinMinBase):
 
         self.n_tasks_per_batch = n_tasks_per_batch
         self.max_tasks_per_worker = max_tasks_per_worker
-        self.options = options
+        self.max_n_bins = max_n_bins
 
         known_samplers = ["latinhypercube"]
         if self.sampler not in known_samplers:
@@ -59,12 +80,6 @@ class BinMinBottomUp(BinMinBase):
         known_optimizers = ["minimize"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
-
-        # Some default options
-        if "always_accept_target_below" not in self.options.keys():
-            self.options["always_accept_target_below"] = -np.inf
-        if "always_accept_delta_target_below" not in self.options.keys():
-            self.options["always_accept_delta_target_below"] = 0.0
 
         self.print_prefix = "BinMinBottomUp:"
 
@@ -84,8 +99,6 @@ class BinMinBottomUp(BinMinBase):
                 warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
             del(self.optimizer_kwargs["bounds"])
 
-        if not isinstance(args, tuple):
-            args = tuple([args])
         if "args" in sampler_kwargs.keys():
             warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'sampler_kwargs' dictionary.")
             sampler_kwargs["args"] = args
@@ -94,6 +107,15 @@ class BinMinBottomUp(BinMinBase):
             optimizer_kwargs["args"] = args
 
 
+
+    def _default_guide_function(self, x, y, *args):
+        """Default guide function for the optimizer"""
+        return y
+
+
+    def _default_bin_check_function(self, x_opt, y_opt, guide_func_opt):
+        """Default function to decide if a bin is acceptable"""
+        return True
 
 
     def _worker_function(self, bin_index_tuple, return_evals=False, x0_in=None):
@@ -143,16 +165,24 @@ class BinMinBottomUp(BinMinBase):
                 lh_x_points = x_lower_lims + lh_sampler.random(n=self.n_sampler_points_per_bin) * (x_upper_lims - x_lower_lims)
 
                 # Determine the best point
-                current_x_best = None
-                current_y_min = np.inf
+                current_x_opt = None
+                current_y_opt = np.inf
+                current_g_opt = np.inf
                 for x in lh_x_points:
-                    y = target_function_wrapper(x)
-                    if y < current_y_min:
-                        current_x_best = x
-                        current_y_min = y
+                    y = target_function_wrapper(x, *self.args)
+                    g = self.guide_function(x, y, *self.args)
+                    # _Anders
+                    # if y < current_y_opt:
+                    #     current_x_opt = x
+                    #     current_y_opt = y
+                    if g < current_g_opt:
+                        current_x_opt = x
+                        current_y_opt = y
+                        current_g_opt = g
                 res = OptimizeResult(
-                    x=current_x_best,
-                    fun=current_y_min,
+                    x=current_x_opt,
+                    fun=current_y_opt,
+                    guide_fun=current_g_opt,
                 )
 
 
@@ -164,7 +194,10 @@ class BinMinBottomUp(BinMinBase):
             if final_res is None:
                 final_res = res
             else:
-                if res.fun < final_res.fun:
+                # _Anders
+                # if res.fun < final_res.fun:
+                #     final_res = res
+                if res.guide_fun < final_res.guide_fun:
                     final_res = res
 
         return final_res, target_function_wrapper.calls, x_points, y_points
@@ -251,31 +284,40 @@ class BinMinBottomUp(BinMinBase):
 
             x_points = []
             y_points = []
+            g_points = []
 
-            # Wrapper for the target function, to allow us to save the evaluations
-            def target_function_wrapper(x, *args):
-                target_function_wrapper.calls += 1
+            # Wrapper for the guide function, to allow us to save the evaluations
+            def guide_function_wrapper(x, *args):
+                guide_function_wrapper.calls += 1
                 y = self.target_function(x, *args)
-                if self.return_evals or self.save_evals:
-                    x_points.append(copy(x))
-                    y_points.append(copy(y))
-                return y
-
-            target_function_wrapper.calls = 0
-
-            args = (),
-            if "args" in self.optimizer_kwargs.keys():
-                args = self.optimizer_kwargs["args"]
+                g = self.guide_function(x, y, *args)
+                # if self.return_evals or self.save_evals:
+                x_points.append(copy(x))
+                y_points.append(copy(y))
+                g_points.append(copy(g))
+                return g
+            guide_function_wrapper.calls = 0
 
             try:
                 # TODO: Allow user control of the optimizer settings here
-                res = minimize(target_function_wrapper, x0, bounds=bounds, args=args)
+                res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args)
             except ValueError as e:
                 warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
                 use_optimizer_kwargs["method"] = "trust-constr"
-                res = minimize(target_function_wrapper, x0, bounds=bounds, args=args)
+                res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args)
 
-            return_tuple = (res, target_function_wrapper.calls, x_points, y_points)
+            # The OptimizeResult.fun field should be the target function, so we create
+            # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
+            opt_index = np.argmin(g_points)
+            res.fun = copy(y_points[opt_index])
+            res.guide_fun = copy(g_points[opt_index])
+
+            if (not self.return_evals) and (not self.save_evals):
+                x_points = []
+                y_points = []
+                g_points = []
+
+            return_tuple = (res, guide_function_wrapper.calls, x_points, y_points)
 
             if self.save_evals:
                 import h5py
@@ -300,7 +342,7 @@ class BinMinBottomUp(BinMinBase):
 
                     # Can we get rid of the x_points and y_points?
                     if not self.return_evals:
-                        return_tuple = (res, target_function_wrapper.calls, [], [])
+                        return_tuple = (res, guide_function_wrapper.calls, [], [])
 
             comm.send(return_tuple, dest=0, tag=RESULT_TAG)
 
@@ -317,15 +359,16 @@ class BinMinBottomUp(BinMinBase):
 
             # Collect pairs (target value, bin tuple for best-fit point) in a sorted list
             initial_opt_tuples = []
+            current_global_ymin = np.inf
+            current_global_gmin = np.inf
             for res in initial_opt_results:
-                y_val = res.fun 
+                current_global_ymin = min(res.fun, current_global_ymin)
+                current_global_gmin = min(res.guide_fun, current_global_gmin)
+                g_val = res.guide_fun 
                 x_point = res.x
                 bin_index_tuple = self.get_bin_index_tuple(x_point)
-                add_pair = (y_val, bin_index_tuple)
+                add_pair = (g_val, bin_index_tuple)
                 bisect.insort(initial_opt_tuples, add_pair)
-
-            # Register current best target value
-            current_global_ymin = initial_opt_tuples[0][0]
 
             # Start constructing the initial set of tasks
             completed_tasks = 0
@@ -334,7 +377,7 @@ class BinMinBottomUp(BinMinBase):
             tasks = []
             planned_and_completed_tasks = set()
 
-            for y_val, bin_index_tuple in initial_opt_tuples:
+            for g_val, bin_index_tuple in initial_opt_tuples:
                 if bin_index_tuple not in planned_and_completed_tasks:
                     planned_and_completed_tasks.add(bin_index_tuple)
                     tasks.append(bin_index_tuple)
@@ -416,7 +459,7 @@ class BinMinBottomUp(BinMinBase):
         if rank == 0:
 
             # Prepare some containers
-            all_optimizer_results = []
+            all_bin_results = []
             bin_tuples = []
             bin_centers = []
             x_optimal_per_bin = []
@@ -425,12 +468,13 @@ class BinMinBottomUp(BinMinBase):
             # n_target_calls_total) where created during step 1 
 
             print_counter = 0
-            while completed_tasks < self.options["max_n_bins"]:
+            while completed_tasks < self.max_n_bins:
                 print_counter += 1
 
                 status = MPI.Status()
 
-                if print_counter % 100 == 0:
+                # _Anders
+                if print_counter % 1 == 0:
                     print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
                     print_counter = 0
 
@@ -444,7 +488,7 @@ class BinMinBottomUp(BinMinBase):
                     # 'data' is a list of (bin_index_tuple, result) pairs
                     for current_bin_index_tuple, result in data:
                         opt_result, n_target_calls, x_points, y_points = result
-                        all_optimizer_results.append(opt_result)
+                        all_bin_results.append(opt_result)
                         bin_tuples.append(current_bin_index_tuple)
                         x_optimal_per_bin.append(opt_result.x)
                         y_optimal_per_bin.append(opt_result.fun)
@@ -452,13 +496,15 @@ class BinMinBottomUp(BinMinBase):
                         if self.return_evals:
                             x_evals_list.extend(x_points)
                             y_evals_list.extend(y_points)
-                        # Update current global best-fit value?
-                        if opt_result.fun < current_global_ymin:
-                            current_global_ymin = opt_result.fun
+                        # Update current global minimum values?
+                        current_global_ymin = min(opt_result.fun, current_global_ymin)
+                        current_global_gmin = min(opt_result.guide_fun, current_global_gmin)
 
                         # If this bin is considered interesting, add neighbor bins to the task list
-                        if ( (opt_result.fun < self.options["always_accept_target_below"])
-                              or (opt_result.fun - current_global_ymin < self.options["always_accept_delta_target_below"]) ):
+                        if (    (opt_result.fun < self.accept_target_below)
+                             or (opt_result.fun - current_global_ymin < self.accept_delta_target_below) 
+                             or (opt_result.guide_fun < self.accept_guide_below)
+                             or (opt_result.guide_fun - current_global_gmin < self.accept_delta_guide_below) ):
 
                             new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, 1)
 
@@ -501,12 +547,12 @@ class BinMinBottomUp(BinMinBase):
                 x_evals = np.array(x_evals_list)
                 y_evals = np.array(y_evals_list)
 
-            # Determine the global optimum.
+            # Determine the global optimum (target, not guide).
             x_opt = []
             y_opt = [float('inf')]
             optimal_bins = []
             for i,bin_index_tuple in enumerate(bin_tuples):
-                bin_opt_result = all_optimizer_results[i]
+                bin_opt_result = all_bin_results[i]
                 if bin_opt_result is not None:
                     if bin_opt_result.fun < y_opt[0]:
                         x_opt = [bin_opt_result.x]
@@ -533,7 +579,7 @@ class BinMinBottomUp(BinMinBase):
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),
-                "all_optimizer_results": all_optimizer_results,
+                "all_bin_results": all_bin_results,
                 "n_target_calls": n_target_calls_total,
                 "x_evals": x_evals,
                 "y_evals": y_evals,
@@ -589,9 +635,15 @@ class BinMinBottomUp(BinMinBase):
 
                     # Extract results
                     opt_result, n_target_calls, x_evals, y_evals = result    
+                    opt_result.guide_fun = self.guide_function(opt_result.x, opt_result.fun, *self.args)
+                    
+                    if (not self.return_evals) and (not self.save_evals):
+                        x_evals = []
+                        y_evals = []
+
                     x_evals_collected.extend(x_evals)
                     y_evals_collected.extend(y_evals)
-                    return_result = (opt_result, n_target_calls, [], [])
+                    return_result = (opt_result, n_target_calls, x_evals, y_evals)
                     results.append((bin_index_tuple, return_result))
 
                 # Write to file

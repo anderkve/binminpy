@@ -18,11 +18,10 @@ def target_function(x, *args):
     #     func = 1
     return func
 
-# def modified_target_function(x, *args):
-#     """A multi-dimensional version of the Himmelblau function."""
-#     func = target_function(x)
-#     contour_chi2 = (func - 80.)**2 / 4**2
-#     return contour_chi2
+
+def guide_function(x, y, *args):
+    contour_chi2 = (y - 80.)**2 / 4**2
+    return contour_chi2
 
 
 # def target_function(x, *args):
@@ -40,7 +39,7 @@ def target_function(x, *args):
 if __name__ == "__main__":
 
     # n_bins = 20
-    n_bins = 100
+    n_bins = 200
     # n_bins = 1
     # dim_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
     dim_combinations = [(0,1)]
@@ -71,27 +70,22 @@ if __name__ == "__main__":
         # binning_tuples = [(-5, 10.0, 30), (-5, 10.0, 30), (-5, 10.0, 120), (-5, 10.0, 120)]
 
 
-        # Example function for masking some bins
-        def bin_masking(bin_centre, bin_edges):
-            x0 = bin_centre[0]
-            x1 = bin_centre[1]
-            ellipse_1 = ((x0 - 0.0) / 4)**2 + ((x1 - 3.0) / 2)**2
-            ellipse_2 = ((x0 + 3.5) / 2)**2 + ((x1 - 0.0) / 5)**2
-            ellipse_3 = ((x0 - 3.5) / 2)**2 + ((x1 - 0.0) / 4)**2
-            if (ellipse_1 > 1) and (ellipse_2 > 1) and (ellipse_3 > 1):
-                return False
-            return True
-
-
         binned_opt = BinMinBottomUp(
             target_function,
             binning_tuples,
             args=(),
+            # guide_function=None,
+            guide_function=guide_function,
+            bin_check_function=None,
             sampler="latinhypercube",
             sampler_kwargs={},
             optimizer="minimize",
             optimizer_kwargs={},
-            n_sampler_points_per_bin = 100,
+            n_sampler_points_per_bin=2,
+            accept_target_below=-np.inf, 
+            accept_delta_target_below=0.0,
+            accept_guide_below=-np.inf, 
+            accept_delta_guide_below=4.0,
             save_evals=True,
             return_evals=False,
             return_bin_centers=True,
@@ -99,12 +93,8 @@ if __name__ == "__main__":
             optima_comparison_atol=1e-4,
             n_restarts_per_bin=1,
             n_tasks_per_batch=1,
-            max_tasks_per_worker=750,
-            options={
-                "always_accept_target_below": -np.inf,  # -np.inf,  
-                "always_accept_delta_target_below": 100.0,  #100., # 40.,  # 90.0, #80.,  # 0.
-                "max_n_bins": int(np.prod([bt[2] for bt in binning_tuples])),
-            },
+            max_tasks_per_worker=np.inf,
+            max_n_bins=np.inf,
         )
         result = binned_opt.run()
 

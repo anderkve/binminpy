@@ -309,7 +309,7 @@ class BinMin(BinMinBase):
             "bin_centers": None,
             "x_optimal_per_bin": np.full((self.n_bins, self.n_dims), np.nan),
             "y_optimal_per_bin": np.full((self.n_bins,), np.inf),
-            "all_optimizer_results": [None] * self.n_bins,
+            "all_bin_results": [None] * self.n_bins,
             "n_target_calls": 0,
             "x_evals": None,
             "y_evals": None,
@@ -330,7 +330,7 @@ class BinMin(BinMinBase):
             task_number = task_index + 1
             worker_output = self._worker_function(bin_index_tuple, return_evals=self.return_evals)
             opt_result, n_target_calls, x_points, y_points = worker_output
-            output["all_optimizer_results"][bin_index] = opt_result
+            output["all_bin_results"][bin_index] = opt_result
             output["x_optimal_per_bin"][bin_index] = opt_result.x
             output["y_optimal_per_bin"][bin_index] = opt_result.fun
             output["n_target_calls"] += n_target_calls
@@ -348,7 +348,7 @@ class BinMin(BinMinBase):
         y_opt = [float('inf')]
         optimal_bins = []
         for bin_index in range(self.n_bins):
-            bin_opt_result = output["all_optimizer_results"][bin_index]
+            bin_opt_result = output["all_bin_results"][bin_index]
             if bin_opt_result is not None:
                 if bin_opt_result.fun < y_opt[0]:
                     x_opt = [bin_opt_result.x]
