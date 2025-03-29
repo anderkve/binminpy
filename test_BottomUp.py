@@ -24,6 +24,15 @@ def guide_function(x, y, *args):
     return contour_chi2
 
 
+def bin_check_function(bin_result, x_points, y_points):
+    bin_accepted = False
+    guide_opt = bin_result.guide_fun
+    if guide_opt < 4.0:
+        bin_accepted = True
+    return bin_accepted
+
+
+
 # def target_function(x, *args):
 #     """A multi-dimensional version of the Rosenbrock function."""
 #     d = len(x)
@@ -76,16 +85,18 @@ if __name__ == "__main__":
             args=(),
             # guide_function=None,
             guide_function=guide_function,
-            bin_check_function=None,
+            # bin_check_function=None,
+            bin_check_function=bin_check_function,
             sampler="latinhypercube",
             sampler_kwargs={},
             optimizer="minimize",
             optimizer_kwargs={},
+            n_initial_points=100,
             n_sampler_points_per_bin=2,
-            accept_target_below=-np.inf, 
-            accept_delta_target_below=0.0,
-            accept_guide_below=-np.inf, 
-            accept_delta_guide_below=4.0,
+            # accept_target_below=-np.inf, 
+            # accept_delta_target_below=0.0,
+            # accept_guide_below=-np.inf, 
+            # accept_delta_guide_below=4.0,
             save_evals=True,
             return_evals=False,
             return_bin_centers=True,
