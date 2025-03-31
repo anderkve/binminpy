@@ -15,7 +15,8 @@ from binminpy.BinMin import BinMinBase
 class BinMinBottomUp(BinMinBase):
 
     def __init__(self, target_function, binning_tuples, args=(), 
-                 guide_function=None, bin_check_function=None, callback=None,
+                 guide_function=None, bin_check_function=None, 
+                 callback=None, callback_on_rank_0=True,
                  sampler="latinhypercube", sampler_kwargs={}, 
                  optimizer="minimize", optimizer_kwargs={},
                  sampled_parameters=None, optimized_parameters=None,
@@ -51,12 +52,12 @@ class BinMinBottomUp(BinMinBase):
         if self.guide_function is None:
             self.guide_function = self._default_guide_function
         self.bin_check_function = bin_check_function
-        self.callback = callback
-
         if bin_check_function is not None:
             if ( (accept_target_below != np.inf) or (accept_delta_target_below != np.inf)
                  or (accept_guide_below != np.inf) or (accept_delta_guide_below != np.inf) ):
                 warnings.warn(f"{self.print_prefix} Since a 'bin_check_function' has been provided, the options 'accept_target_below', 'accept_delta_target_below', 'accept_guide_below' and 'accept_delta_guide_below' will be ignored.")
+        self.callback = callback
+        self.callback_on_rank_0 = callback_on_rank_0
 
         self.sampler = sampler
         self.sampler_kwargs = sampler_kwargs
@@ -594,7 +595,7 @@ class BinMinBottomUp(BinMinBase):
 
 
         #
-        # Step 3: Main work loop
+        # Step 3: Main loop
         #
 
         if rank == 0:
@@ -643,6 +644,10 @@ class BinMinBottomUp(BinMinBase):
                         # Task bookkeeping
                         completed_tasks += 1
                         ongoing_tasks.remove(current_bin_index_tuple)
+
+                        # Run callback function?
+                        if (self.callback is not None) and (self.callback_on_rank_0):
+                            self.callback(opt_result, x_points, y_points)
 
                         # If this bin is considered interesting, add neighbor bins to the task list
                         nice_neighborhood = False
@@ -785,8 +790,8 @@ class BinMinBottomUp(BinMinBase):
                     opt_result, n_target_calls, x_evals, y_evals = result    
                     opt_result.guide_fun = self.guide_function(opt_result.x, opt_result.fun, *self.args)
                     
-                    # Run callback function
-                    if self.callback is not None:
+                    # Run callback function on worker process?
+                    if (self.callback is not None) and (not self.callback_on_rank_0):
                         self.callback(opt_result, x_evals, y_evals)
 
                     # Check if this bin is interesting according to the user-defined bin_check_function
