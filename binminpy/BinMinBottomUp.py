@@ -15,7 +15,7 @@ from binminpy.BinMin import BinMinBase
 class BinMinBottomUp(BinMinBase):
 
     def __init__(self, target_function, binning_tuples, args=(), 
-                 guide_function=None, bin_check_function=None,
+                 guide_function=None, bin_check_function=None, callback=None,
                  sampler="latinhypercube", sampler_kwargs={}, 
                  optimizer="minimize", optimizer_kwargs={},
                  sampled_parameters=None, optimized_parameters=None,
@@ -50,8 +50,8 @@ class BinMinBottomUp(BinMinBase):
         self.guide_function = guide_function
         if self.guide_function is None:
             self.guide_function = self._default_guide_function
-
         self.bin_check_function = bin_check_function
+        self.callback = callback
 
         if bin_check_function is not None:
             if ( (accept_target_below != np.inf) or (accept_delta_target_below != np.inf)
@@ -614,7 +614,7 @@ class BinMinBottomUp(BinMinBase):
 
                 status = MPI.Status()
 
-                if print_counter % 100 == 0:
+                if print_counter % 1 == 0:
                     print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
                     print_counter = 0
 
@@ -785,6 +785,10 @@ class BinMinBottomUp(BinMinBase):
                     opt_result, n_target_calls, x_evals, y_evals = result    
                     opt_result.guide_fun = self.guide_function(opt_result.x, opt_result.fun, *self.args)
                     
+                    # Run callback function
+                    if self.callback is not None:
+                        self.callback(opt_result, x_evals, y_evals)
+
                     # Check if this bin is interesting according to the user-defined bin_check_function
                     user_bin_check = None
                     if self.bin_check_function is not None:
