@@ -20,7 +20,7 @@ class BinMinBase:
         """Get the bin index tuple for an input point"""
         bin_widths_per_dim = np.array([(bt[1] - bt[0]) / bt[2] for bt in self.binning_tuples])
         x_min = np.array([bt[0] for bt in self.binning_tuples])
-        bin_indices = np.array((x - x_min) / bin_widths_per_dim, dtype=int)
+        bin_indices = np.array((x - x_min) / ((1.0 + 10*np.spacing(1.0)) * bin_widths_per_dim), dtype=int)
         return tuple(bin_indices)
 
 

@@ -6,7 +6,7 @@ import itertools
 from mpi4py import MPI
 import bisect
 from itertools import product
-from scipy.optimize import minimize
+from scipy.optimize import minimize, differential_evolution
 from scipy.optimize import OptimizeResult
 from scipy.stats.qmc import LatinHypercube
 
@@ -18,10 +18,12 @@ class BinMinBottomUp(BinMinBase):
                  guide_function=None, bin_check_function=None,
                  sampler="latinhypercube", sampler_kwargs={}, 
                  optimizer="minimize", optimizer_kwargs={},
-                 n_initial_points=10,
-                 n_sampler_points_per_bin=10,
-                 accept_target_below=-np.inf, accept_delta_target_below=0.0,
-                 accept_guide_below=-np.inf, accept_delta_guide_below=0.0,
+                 sampled_parameters=None, optimized_parameters=None,
+                 x_init_optimized_parameters=None,
+                 n_initial_points=10, n_sampler_points_per_bin=10,
+                 inherit_best_init_point_within_bin=False,
+                 accept_target_below=np.inf, accept_delta_target_below=np.inf,
+                 accept_guide_below=np.inf, accept_delta_guide_below=np.inf,
                  save_evals=False, return_evals=False, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
                  n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
@@ -52,16 +54,20 @@ class BinMinBottomUp(BinMinBase):
         self.bin_check_function = bin_check_function
 
         if bin_check_function is not None:
-            if ( (accept_target_below != -np.inf) or (accept_delta_target_below != 0)
-                 or (accept_guide_below != -np.inf) or (accept_delta_guide_below != 0) ):
+            if ( (accept_target_below != np.inf) or (accept_delta_target_below != np.inf)
+                 or (accept_guide_below != np.inf) or (accept_delta_guide_below != np.inf) ):
                 warnings.warn(f"{self.print_prefix} Since a 'bin_check_function' has been provided, the options 'accept_target_below', 'accept_delta_target_below', 'accept_guide_below' and 'accept_delta_guide_below' will be ignored.")
 
         self.sampler = sampler
         self.sampler_kwargs = sampler_kwargs
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
+        self.sampled_parameters = sampled_parameters
+        self.optimized_parameters = optimized_parameters
+        self.x_init_optimized_parameters = x_init_optimized_parameters
         self.n_initial_points = n_initial_points
         self.n_sampler_points_per_bin = n_sampler_points_per_bin
+        self.inherit_best_init_point_within_bin = inherit_best_init_point_within_bin
 
         self.accept_target_below = accept_target_below,
         self.accept_delta_target_below = accept_delta_target_below,
@@ -80,28 +86,48 @@ class BinMinBottomUp(BinMinBase):
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
 
+        if (self.sampled_parameters is not None):
+            if not isinstance(self.sampled_parameters, tuple):
+                self.sampled_parameters = tuple([self.sampled_parameters])
+        if (self.optimized_parameters is not None):
+            if not isinstance(self.optimized_parameters, tuple):
+                self.optimized_parameters = tuple([self.optimized_parameters])
+
+        if (self.sampled_parameters is None) and (self.optimized_parameters is None):
+            self.sampled_parameters = tuple(range(self.n_dims))
+            self.optimized_parameters = ()
+        elif (self.sampled_parameters is not None) and (self.optimized_parameters is None):
+            if len(self.sampled_parameters) != self.n_dims:
+                raise Exception(f"{self.print_prefix} When specified, the 'sampled_parameters' and 'optimized_parameters' tuples must together contain all parameter indices.")
+            self.optimized_parameters = ()
+        elif (self.sampled_parameters is None) and (self.optimized_parameters is not None):
+            if len(self.optimized_parameters) != self.n_dims:
+                raise Exception(f"{self.print_prefix} When specified, the 'sampled_parameters' and 'optimized_parameters' tuples must together contain all parameter indices.")
+            self.sampled_parameters = ()
+        else:
+            for param_i in range(self.n_dims):
+                if param_i not in self.sampled_parameters + self.optimized_parameters:
+                    raise Exception(f"{self.print_prefix} Parameter index {i} is not listed in 'sampled_parameters' or 'optimized_parameters'")
+
+        self.n_sampled_dims = len(self.sampled_parameters)
+        self.n_optimized_dims = len(self.optimized_parameters)
+
         known_samplers = ["latinhypercube"]
         if self.sampler not in known_samplers:
             raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
 
-        known_optimizers = ["minimize"]
+        known_optimizers = ["minimize", "differential_evolution"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
-        known_optimizers_and_samplers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver", "bincenter", "latinhypercube"]
-        if self.sampler not in known_optimizers_and_samplers:
-            raise Exception(f"Unknown sampler '{self.optimizer}'. The known optimizers are {known_optimizers_and_samplers}.")
-        if self.optimizer not in known_optimizers:
-            raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers_and_samplers}.")
-
         if "bounds" in self.sampler_kwargs:
             if self.sampler_kwargs["bounds"] is not None:
-                warnings.warn("BinMin will override the 'bounds' entry provided via the 'sampler_kwargs' dictionary.")
+                warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'sampler_kwargs' dictionary will be overridden.")
             del(self.sampler_kwargs["bounds"])
 
         if "bounds" in self.optimizer_kwargs:
             if self.optimizer_kwargs["bounds"] is not None:
-                warnings.warn("BinMin will override the 'bounds' entry provided via the 'optimizer_kwargs' dictionary.")
+                warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'optimizer_kwargs' dictionary will be overridden.")
             del(self.optimizer_kwargs["bounds"])
 
         if "args" in sampler_kwargs.keys():
@@ -120,79 +146,184 @@ class BinMinBottomUp(BinMinBase):
     def _worker_function(self, bin_index_tuple, return_evals=False, x0_in=None):
         """Function to optimize the target function within a set of bounds"""
         bounds = self.get_bin_limits(bin_index_tuple)
+        # bounds_sampling = [bounds[i] for i in self.sampled_parameters]
+        # bounds_optimization = [bounds[i] for i in self.optimized_parameters]
+
         use_optimizer_kwargs = copy(self.optimizer_kwargs)
+
+        # x_points = []
+        # y_points = []
+
+        # # Wrapper for the target function, to allow us to save the evaluations
+        # def target_function_wrapper(x, *args):
+        #     target_function_wrapper.calls += 1
+        #     y = self.target_function(x, *args)
+        #     if return_evals:
+        #         x_points.append(copy(x))
+        #         y_points.append(copy(y))
+        #     return y
+
+        # target_function_wrapper.calls = 0
+
+        x_evals_collected = []
+        y_evals_collected = []
 
         x_points = []
         y_points = []
+        g_points = []
 
-        # Wrapper for the target function, to allow us to save the evaluations
-        def target_function_wrapper(x, *args):
-            target_function_wrapper.calls += 1
+        # Wrapper for the guide function, to allow us to save the evaluations
+        def guide_function_wrapper(x, *args):
+            guide_function_wrapper.calls += 1
             y = self.target_function(x, *args)
-            if return_evals:
+            g = self.guide_function(x, y, *args)
+            # if self.return_evals or self.save_evals:
+            x_points.append(copy(x))
+            y_points.append(copy(y))
+            g_points.append(copy(g))
+            return g
+        guide_function_wrapper.calls = 0
+
+        # # Do the sampling + optimization and store the result
+        # final_res = None
+        # for run_i in range(self.n_restarts_per_bin):
+
+        # # Initial point (for optimizers that need this)
+        # if run_i == 0:
+        #     if x0_in is None:
+        #         x0 = self.get_bin_center(bin_index_tuple)
+        #     else:
+        #         x0 = x0_in
+        # else:
+        #     x0 = self.get_random_point_in_bin(bin_index_tuple)
+
+        # 
+        # Do the sampling
+        #
+
+        sampled_points = []
+        if self.sampler == "latinhypercube":
+
+            # Limits for the full input space
+            x_lower_lims = np.array([b[0] for b in bounds])
+            x_upper_lims = np.array([b[1] for b in bounds])
+            
+            # Do the sampling
+            lh_sampler = LatinHypercube(d=self.n_dims)
+            sampled_points = x_lower_lims + lh_sampler.random(n=self.n_sampler_points_per_bin) * (x_upper_lims - x_lower_lims)
+
+
+        # No need for optimization?
+        if self.n_optimized_dims == 0:
+
+            # Determine the best point
+            current_x_opt = None
+            current_y_opt = np.inf
+            current_g_opt = np.inf
+            for x in sampled_points:
+
+                # TODO: Unify this bit with the wrapper function above
+                guide_function_wrapper.calls += 1
+                y = self.target_function(x, *self.args)
+                g = self.guide_function(x, y, *self.args)
                 x_points.append(copy(x))
                 y_points.append(copy(y))
-            return y
+                if g < current_g_opt:
+                    current_x_opt = x
+                    current_y_opt = y
+                    current_g_opt = g
+            final_res = OptimizeResult(
+                x=current_x_opt,
+                fun=current_y_opt,
+                guide_fun=current_g_opt,
+            )
 
-        target_function_wrapper.calls = 0
+            if return_evals:
+                x_evals_collected.extend(x_points)
+                y_evals_collected.extend(y_points)
 
-        # Do the sampling + optimization and store the result
-        final_res = None
-        for run_i in range(self.n_restarts_per_bin):
-
-            # Initial point (for optimizers that need this)
-            if run_i == 0:
-                if x0_in is None:
-                    x0 = self.get_bin_center(bin_index_tuple)
-                else:
-                    x0 = x0_in
-            else:
-                x0 = self.get_random_point_in_bin(bin_index_tuple)
-
+        else:
             # 
-            # Do the sampling
-            #
+            # Do the optimization for each sampled point
+            # 
 
-            if self.sampler == "latinhypercube":
+            x_points = []
+            y_points = []
+            g_points = []
 
-                # Limits for the full input space
-                x_lower_lims = np.array([b[0] for b in bounds])
-                x_upper_lims = np.array([b[1] for b in bounds])
+            optimizer_results = []
+            final_res = None
+            current_best_opt_pars = [self.get_bin_center(bin_index_tuple)[i] for i in self.optimized_parameters]
+            for x0 in sampled_points:
                 
-                # Do the sampling
-                lh_sampler = LatinHypercube(d=self.n_dims)
-                lh_x_points = x_lower_lims + lh_sampler.random(n=self.n_sampler_points_per_bin) * (x_upper_lims - x_lower_lims)
+                fixed_pars = {i: x0[i] for i in self.sampled_parameters}
 
-                # Determine the best point
-                current_x_opt = None
-                current_y_opt = np.inf
-                current_g_opt = np.inf
-                for x in lh_x_points:
-                    y = target_function_wrapper(x, *self.args)
-                    g = self.guide_function(x, y, *self.args)
-                    if g < current_g_opt:
-                        current_x_opt = x
-                        current_y_opt = y
-                        current_g_opt = g
-                res = OptimizeResult(
-                    x=current_x_opt,
-                    fun=current_y_opt,
-                    guide_fun=current_g_opt,
-                )
+                if self.x_init_optimized_parameters is not None:
+                    x0_opt_init = self.x_init_optimized_parameters
+                if self.inherit_best_init_point_within_bin:
+                    x0_opt_init = current_best_opt_pars
+                else:
+                    x0_opt_init = [x0[i] for i in self.optimized_parameters]
+                bounds_optimized_pars = [bounds[i] for i in self.optimized_parameters]
 
+                def wrapper_to_fix_pars(x_optimized_pars, *args):
+                    x = np.empty(self.n_dims)
+                    for i in self.sampled_parameters:
+                        x[i] = fixed_pars[i]
+                    for j, i in enumerate(self.optimized_parameters):
+                        x[i] = x_optimized_pars[j]
+                    return guide_function_wrapper(x, *args)
 
-            # 
-            # TODO: Do the optimization
-            # 
+                if self.optimizer == "minimize":
+                    try:
+                        res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                    except ValueError as e:
+                        warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                        use_optimizer_kwargs["method"] = "trust-constr"
+                        res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                elif self.optimizer == "differential_evolution":
+                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
 
-            # Keep the best result from the repetitions
-            if final_res is None:
-                final_res = res
-            else:
-                if res.guide_fun < final_res.guide_fun:
+                # The OptimizeResult.fun field should be the target function, so we create
+                # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
+                opt_index = np.argmin(g_points)
+                res.fun = copy(y_points[opt_index])
+                res.guide_fun = copy(g_points[opt_index])
+
+                full_x_opt = np.zeros(self.n_dims)
+                full_x_opt[list(self.sampled_parameters)] = x0[list(self.sampled_parameters)]
+                full_x_opt[list(self.optimized_parameters)] = res.x
+                res.x = full_x_opt
+
+                if "jac" in res:
+                    jac = np.zeros(self.n_dims)
+                    jac[list(self.optimized_parameters)] = res.jac
+                    res.jac = jac
+
+                if "hess_inv" in res:
+                    del(res.hess_inv)
+
+                optimizer_results.append(res)
+
+                if return_evals:
+                    x_evals_collected.extend(x_points)
+                    y_evals_collected.extend(y_points)
+
+                x_points = []
+                y_points = []
+                g_points = []
+
+                # Keep the best result from the repetitions
+                print
+                if final_res is None:
                     final_res = res
+                else:
+                    if res.guide_fun < final_res.guide_fun:
+                        final_res = res
+                        current_best_opt_pars = [res.x[i] for i in self.optimized_parameters]
 
-        return final_res, target_function_wrapper.calls, x_points, y_points
+        return final_res, guide_function_wrapper.calls, x_evals_collected, y_evals_collected
+
 
 
 
@@ -272,7 +403,7 @@ class BinMinBottomUp(BinMinBase):
 
             # Done with the initial optimizations, so stop all workers
             for worker_rank in range(1, n_workers+1):
-                print(f"{self.print_prefix} rank {rank}: Telling rank {worker_rank} we are done with the initial optimization.", flush=True)
+                # print(f"{self.print_prefix} rank {rank}: Telling rank {worker_rank} we are done with the initial optimization.", flush=True)
                 comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
 
         else: 
@@ -286,7 +417,7 @@ class BinMinBottomUp(BinMinBase):
 
                 # Terminate?
                 if tag == TERMINATE_TAG or data is None:
-                    print(f"{self.print_prefix} rank {rank}: No more initial optimization tasks for me.", flush=True)
+                    # print(f"{self.print_prefix} rank {rank}: No more initial optimization tasks for me.", flush=True)
                     break
 
                 # Worker process: receive optimization task, perform it, and wait at barrier
@@ -483,7 +614,7 @@ class BinMinBottomUp(BinMinBase):
 
                 status = MPI.Status()
 
-                if print_counter % 10 == 0:
+                if print_counter % 100 == 0:
                     print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
                     print_counter = 0
 
@@ -509,6 +640,10 @@ class BinMinBottomUp(BinMinBase):
                         current_global_ymin = min(opt_result.fun, current_global_ymin)
                         current_global_gmin = min(opt_result.guide_fun, current_global_gmin)
 
+                        # Task bookkeeping
+                        completed_tasks += 1
+                        ongoing_tasks.remove(current_bin_index_tuple)
+
                         # If this bin is considered interesting, add neighbor bins to the task list
                         nice_neighborhood = False
                         if user_bin_check is not None:
@@ -526,12 +661,12 @@ class BinMinBottomUp(BinMinBase):
                             # TODO: Can implement an upper bound on the number of planned tasks here
                             if len(tasks) < np.inf:
                                 for bin_index_tuple in new_bin_tuples:
+                                    if len(planned_and_completed_tasks) >= self.max_n_bins:
+                                        print(f"{self.print_prefix} rank {rank}: Will not plan more tasks due to the limit max_n_bins = {self.max_n_bins}", flush=True)
+                                        break
                                     if bin_index_tuple not in planned_and_completed_tasks:
                                         planned_and_completed_tasks.add(bin_index_tuple)
                                         tasks.append(bin_index_tuple)
-
-                        completed_tasks += 1
-                        ongoing_tasks.remove(current_bin_index_tuple)
 
                 # Now send out as many new tasks as possible
                 while tasks and available_workers:
@@ -548,7 +683,7 @@ class BinMinBottomUp(BinMinBase):
 
             # Done with the given number of tasks, so stop all workers
             for worker_rank in range(1, n_workers+1):
-                print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank}", flush=True)
+                # print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank}", flush=True)
                 comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
 
 
@@ -690,7 +825,7 @@ class BinMinBottomUp(BinMinBase):
 
 
         # All together now
-        print(f"{self.print_prefix} rank {rank}: Waiting at the final barrier", flush=True)
+        # print(f"{self.print_prefix} rank {rank}: Waiting at the final barrier", flush=True)
         comm.Barrier()
         return output
 

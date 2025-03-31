@@ -26,9 +26,12 @@ def guide_function(x, y, *args):
 
 def bin_check_function(bin_result, x_points, y_points):
     bin_accepted = False
-    guide_opt = bin_result.guide_fun
-    if guide_opt < 4.0:
+    target_opt = bin_result.fun
+    if target_opt < 100.0:
         bin_accepted = True
+    # guide_opt = bin_result.guide_fun
+    # if guide_opt < 4.0:
+    #     bin_accepted = True
     return bin_accepted
 
 
@@ -48,11 +51,14 @@ def bin_check_function(bin_result, x_points, y_points):
 if __name__ == "__main__":
 
     # n_bins = 20
-    n_bins = 200
+    n_bins = 10
     # n_bins = 1
     # dim_combinations = [(0,1), (0,2), (0,3), (1,2), (1,3), (2,3)]
-    dim_combinations = [(0,1)]
-    # dim_combinations = [(0,1,2,3)]
+    # dim_combinations = [(0,1)]
+    # dim_combinations = [(0,)]
+    # dim_combinations = [(0,1,2)]
+    dim_combinations = [(0,1,2,3)]
+    # dim_combinations = [(0,1,2,3,4,5)]
 
     for dim_combo in dim_combinations:
 
@@ -66,8 +72,9 @@ if __name__ == "__main__":
         # binning_tuples = [(-6, 6, 1), (-6, 6, 1), (-6, 6, 120), (-6, 6, 120)]
         # binning_tuples = [(-6, 6, 10), (-6, 6, 10), (-6, 6, 1), (-6, 6, 1)]
 
-        binning_tuples = [[-6, 6, 1], [-6, 6, 1]]
-        # binning_tuples = [[-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1]]
+        # binning_tuples = [[-6, 6, 1], [-6, 6, 1]]
+        binning_tuples = [[-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1]]
+        # binning_tuples = [[-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1], [-6, 6, 1]]
         # binning_tuples = [[-5, 10, 1], [-5, 10, 1], [-5, 10, 1], [-5, 10, 1]]
         for dim in dim_combo:
             binning_tuples[dim][2] = n_bins
@@ -83,16 +90,28 @@ if __name__ == "__main__":
             target_function,
             binning_tuples,
             args=(),
-            # guide_function=None,
-            guide_function=guide_function,
+            guide_function=None,
+            # guide_function=guide_function,
             # bin_check_function=None,
             bin_check_function=bin_check_function,
             sampler="latinhypercube",
             sampler_kwargs={},
             optimizer="minimize",
-            optimizer_kwargs={},
-            n_initial_points=100,
-            n_sampler_points_per_bin=2,
+            optimizer_kwargs={
+                "tol": 1e-3,
+            },
+            # optimizer="differential_evolution",
+            # optimizer_kwargs={
+            #     "popsize": 15,
+            #     "tol": 1e-3,
+            # },
+            # sampled_parameters=dim_combo,
+            # optimized_parameters=tuple([i for i in range(len(binning_tuples)) if i not in dim_combo]),
+            sampled_parameters=tuple([i for i in range(len(binning_tuples)) if i not in dim_combo]),
+            optimized_parameters=dim_combo,
+            n_initial_points=200,
+            n_sampler_points_per_bin=1,
+            inherit_best_init_point_within_bin=True,
             # accept_target_below=-np.inf, 
             # accept_delta_target_below=0.0,
             # accept_guide_below=-np.inf, 
@@ -103,9 +122,10 @@ if __name__ == "__main__":
             optima_comparison_rtol=1e-6,
             optima_comparison_atol=1e-4,
             n_restarts_per_bin=1,
-            n_tasks_per_batch=1,
+            n_tasks_per_batch=10,
             max_tasks_per_worker=np.inf,
             max_n_bins=np.inf,
+            # max_n_bins=2,
         )
         result = binned_opt.run()
 

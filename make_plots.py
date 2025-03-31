@@ -18,8 +18,8 @@ datasets = [
     ("y",   ("y", float)),
     ("x0",  ("x0", float)),
     ("x1",  ("x1", float)),
-    # ("x2",  ("x2", float)),
-    # ("x3",  ("x3", float)),
+    ("x2",  ("x2", float)),
+    ("x3",  ("x3", float)),
     # ("x4",  ("x4", float)),
     # ("x5",  ("x5", float)),
 ]
@@ -44,20 +44,24 @@ likelihood_ratio_contour_values = plot_utils.get_2D_likelihood_ratio_levels(conf
 
 x_keys = [
     "x0", 
-    # "x1", 
-    # "x2",
+    "x1", 
+    "x2",
     # "x3",
     # "x4",
 ]
 y_keys = [
     "x1", 
-    # "x2", 
-    # "x3",
+    "x2", 
+    "x3",
     # "x4",
     # "x5",
 ]
 z_keys = [
     "loglike",
+    # "x2",
+    # "x3",
+    # "x4",
+    # "x5",
 ]
 
 # dataset_bounds = {}
@@ -66,6 +70,8 @@ dataset_bounds = {
     "x1": [-6, 6],
     "x2": [-6, 6],
     "x3": [-6, 6],
+    "x4": [-6, 6],
+    "x5": [-6, 6],
 }
 
 # Specify some pretty plot labels?
@@ -74,14 +80,16 @@ plot_labels = {
     "x1": "$x_{1}$ (unit)",
     "x2": "$x_{2}$ (unit)",
     "x3": "$x_{3}$ (unit)",
-    "x4": "$x_{3}$ (unit)",
-    "x5": "$x_{3}$ (unit)",
+    "x4": "$x_{4}$ (unit)",
+    "x5": "$x_{5}$ (unit)",
 }
 
 # Number of bins used for profiling
 # xy_bins = (200, 200)
 xy_bins = (160, 160)
-# xy_bins = (40, 40)
+# xy_bins = (100, 100)
+# xy_bins = (200, 200)
+# xy_bins = (10, 10)
 
 for z_key in z_keys:
     for x_key in x_keys:
@@ -113,12 +121,19 @@ for z_key in z_keys:
                 labels, 
                 xy_bins, 
                 xy_bounds=xy_bounds, 
+                # 
                 z_is_loglike=True,
                 plot_likelihood_ratio=True,
                 contour_levels=likelihood_ratio_contour_values,
                 z_fill_value = -1*np.finfo(float).max,
-                # z_fill_value = np.nan,
                 add_max_likelihood_marker = True,
+                # 
+                # z_is_loglike=False,
+                # plot_likelihood_ratio=False,
+                # contour_levels=[],
+                # z_fill_value = np.nan,
+                # add_max_likelihood_marker = False,
+                # 
                 plot_settings=plot_settings,
             )
 
