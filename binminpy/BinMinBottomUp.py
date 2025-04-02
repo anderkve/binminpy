@@ -74,10 +74,10 @@ class BinMinBottomUp(BinMinBase):
         self.n_sampler_points_per_bin = n_sampler_points_per_bin
         self.inherit_best_init_point_within_bin = inherit_best_init_point_within_bin
 
-        self.accept_target_below = accept_target_below,
-        self.accept_delta_target_below = accept_delta_target_below,
-        self.accept_guide_below = accept_guide_below,
-        self.accept_delta_guide_below = accept_delta_guide_below,
+        self.accept_target_below = accept_target_below
+        self.accept_delta_target_below = accept_delta_target_below
+        self.accept_guide_below = accept_guide_below
+        self.accept_delta_guide_below = accept_delta_guide_below
 
         self.save_evals = save_evals
         self.return_evals = return_evals
