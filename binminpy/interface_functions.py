@@ -4,8 +4,8 @@ import numpy as np
 
 def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                    return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                   parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                   bin_masking):
+                   n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                   options, n_tasks_per_batch, max_tasks_per_worker, bin_masking):
     """Helper function to start the optimizer with the requested parallelization. """
 
     # Check the parallelization argument.
@@ -17,9 +17,9 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
 
     # Run binned optimization with the requested parallelization.
     if parallelization == "serial":
-        from binminpy.BinnedOptimizer import BinnedOptimizer
+        from binminpy.BinMin import BinMin
         
-        binned_opt = BinnedOptimizer(
+        binned_opt = BinMin(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -28,14 +28,15 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             return_bin_centers=return_bin_centers,
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
+            n_restarts_per_bin=n_restarts_per_bin,
             bin_masking=bin_masking,
         )
         output = binned_opt.run()
         return output
 
     elif parallelization == "mpp":
-        from binminpy.BinnedOptimizerMPP import BinnedOptimizerMPP
-        binned_opt = BinnedOptimizerMPP(
+        from binminpy.BinMinMPP import BinMinMPP
+        binned_opt = BinMinMPP(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -44,6 +45,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             return_bin_centers=return_bin_centers,            
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
+            n_restarts_per_bin=n_restarts_per_bin,
             max_processes=max_processes,
             bin_masking=bin_masking,            
         )
@@ -51,8 +53,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "ppe":
-        from binminpy.BinnedOptimizerPPE import BinnedOptimizerPPE
-        binned_opt = BinnedOptimizerPPE(
+        from binminpy.BinMinPPE import BinMinPPE
+        binned_opt = BinMinPPE(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -61,6 +63,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             return_bin_centers=return_bin_centers,            
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
+            n_restarts_per_bin=n_restarts_per_bin,
             max_processes=max_processes,
             bin_masking=bin_masking,            
         )
@@ -68,8 +71,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
         return output
 
     elif parallelization == "mpi":
-        from binminpy.BinnedOptimizerMPI import BinnedOptimizerMPI
-        binned_opt = BinnedOptimizerMPI(
+        from binminpy.BinMinMPI import BinMinMPI
+        binned_opt = BinMinMPI(
             fun,
             binning_tuples,
             optimizer=optimizer,
@@ -78,8 +81,11 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             return_bin_centers=return_bin_centers,
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
+            n_restarts_per_bin=n_restarts_per_bin,
             task_distribution=task_distribution,
+            options=options,
             n_tasks_per_batch=n_tasks_per_batch,
+            max_tasks_per_worker=max_tasks_per_worker,
             bin_masking=bin_masking,
         )
         output = binned_opt.run()
@@ -95,8 +101,8 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
 
 def minimize(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
              optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-             parallelization=None, max_processes=1, task_distribution="even", 
-             n_tasks_per_batch=1, bin_masking=None, **kwargs):
+             n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+             options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
 
     """Do binned optimization with scipy.optimize.minimize.
 
@@ -108,15 +114,15 @@ def minimize(fun, binning_tuples, return_evals=False, return_bin_centers=True,
 
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def differential_evolution(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
                            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-                           parallelization=None, max_processes=1, task_distribution="even", 
-                           n_tasks_per_batch=1, bin_masking=None, **kwargs):
+                           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+                           options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with scipy.optimize.differential_evolution as the optimizer.
 
     See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html#scipy.optimize.differential_evolution
@@ -127,15 +133,15 @@ def differential_evolution(fun, binning_tuples, return_evals=False, return_bin_c
 
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def basinhopping(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
                  optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-                 parallelization=None, max_processes=1, task_distribution="even", 
-                 n_tasks_per_batch=1, bin_masking=None, **kwargs):
+                 n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+                 options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with scipy.optimize.basinhopping as the optimizer.
 
     See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.basinhopping.html#scipy.optimize.basinhopping
@@ -146,15 +152,15 @@ def basinhopping(fun, binning_tuples, return_evals=False, return_bin_centers=Tru
 
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def shgo(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
          optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-         parallelization=None, max_processes=1, task_distribution="even", 
-         n_tasks_per_batch=1, bin_masking=None, **kwargs):
+         n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+         options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with scipy.optimize.shgo as the optimizer.
     
     See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.shgo.html#scipy.optimize.shgo
@@ -165,15 +171,15 @@ def shgo(fun, binning_tuples, return_evals=False, return_bin_centers=True,
 
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def dual_annealing(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
                    optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2, 
-                   parallelization=None, max_processes=1, task_distribution="even", 
-                   n_tasks_per_batch=1, bin_masking=None, **kwargs):
+                   n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+                   options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with scipy.optimize.dual_annealing as the optimizer.
 
     See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.dual_annealing.html#scipy.optimize.dual_annealing
@@ -184,15 +190,15 @@ def dual_annealing(fun, binning_tuples, return_evals=False, return_bin_centers=T
 
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def direct(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-           parallelization=None, max_processes=1, task_distribution="even",
-           n_tasks_per_batch=1, bin_masking=None, **kwargs):
+           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+           options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with scipy.optimize.direct as the optimizer.
 
     See https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.direct.html#scipy.optimize.direct
@@ -203,15 +209,15 @@ def direct(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def iminuit(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-           parallelization=None, max_processes=1, task_distribution="even",
-           n_tasks_per_batch=1, bin_masking=None, **kwargs):
+           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+           options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with iminuit.minimize as the optimizer.
 
     See https://scikit-hep.org/iminuit/reference.html#scipy-like-interface
@@ -222,15 +228,15 @@ def iminuit(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
 def diver(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
           optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
-          parallelization=None, max_processes=1, task_distribution="even",
-          n_tasks_per_batch=1, bin_masking=None, **kwargs):
+          n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+          options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
     """Do binned optimization with diver as the optimizer.
 
     See https://github.com/diveropt/Diver
@@ -241,6 +247,55 @@ def diver(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     
     return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
-                          parallelization, max_processes, task_distribution, n_tasks_per_batch,
-                          bin_masking)
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
+
+
+def bincenter(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+              optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+              n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+              options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Simply evaluate the target function at the center of each bin."""
+
+    optimizer = "bincenter"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
+
+
+
+def random(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+           optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+           options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Simply evaluate the target function at the center of each bin."""
+
+    optimizer = "random"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
+
+
+
+def latinhypercube(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+                   optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
+                   n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
+                   options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
+    """Use latin hypercube sampling to evaluate the target at a fixed number of
+    points within each bin.
+    """
+
+    optimizer = "latinhypercube"
+    optimizer_kwargs = dict(kwargs)
+    
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+                          return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                          n_restarts_per_bin, parallelization, max_processes, task_distribution,
+                          options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
