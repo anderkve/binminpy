@@ -2,7 +2,7 @@ import numpy as np
 
 # Helper functions
 
-def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results, 
                    return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                    n_restarts_per_bin, parallelization, max_processes, task_distribution,
                    options, n_tasks_per_batch, max_tasks_per_worker, bin_masking):
@@ -25,6 +25,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             return_evals=return_evals,
+            return_bin_results=return_bin_results,
             return_bin_centers=return_bin_centers,
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
@@ -42,6 +43,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             return_evals=return_evals,
+            return_bin_results=return_bin_results,
             return_bin_centers=return_bin_centers,            
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
@@ -60,6 +62,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             return_evals=return_evals,
+            return_bin_results=return_bin_results,
             return_bin_centers=return_bin_centers,            
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
@@ -78,6 +81,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             return_evals=return_evals,
+            return_bin_results=return_bin_results,
             return_bin_centers=return_bin_centers,
             optima_comparison_rtol=optima_comparison_rtol,
             optima_comparison_atol=optima_comparison_atol,
@@ -99,7 +103,7 @@ def _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_eval
 # Below is a collection of functions to allow using binminpy 
 # through an interface similar to scipy.optimize.
 
-def minimize(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def minimize(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
              optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
              n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
              options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -112,14 +116,14 @@ def minimize(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "minimize"
     optimizer_kwargs = dict(kwargs)
 
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def differential_evolution(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def differential_evolution(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
                            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
                            n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
                            options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -131,14 +135,14 @@ def differential_evolution(fun, binning_tuples, return_evals=False, return_bin_c
     optimizer = "differential_evolution"
     optimizer_kwargs = dict(kwargs)
 
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def basinhopping(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def basinhopping(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
                  n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
                  options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -150,14 +154,14 @@ def basinhopping(fun, binning_tuples, return_evals=False, return_bin_centers=Tru
     optimizer = "basinhopping"
     optimizer_kwargs = dict(kwargs)
 
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def shgo(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def shgo(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
          optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
          n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
          options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -169,14 +173,14 @@ def shgo(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "shgo"
     optimizer_kwargs = dict(kwargs)
 
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def dual_annealing(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def dual_annealing(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
                    optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2, 
                    n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
                    options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -188,14 +192,14 @@ def dual_annealing(fun, binning_tuples, return_evals=False, return_bin_centers=T
     optimizer = "dual_annealing"
     optimizer_kwargs = dict(kwargs)
 
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def direct(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def direct(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
            n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
            options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -207,14 +211,14 @@ def direct(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "direct"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def iminuit(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def iminuit(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
            n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
            options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -226,14 +230,14 @@ def iminuit(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "iminuit"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def diver(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def diver(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
           optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
           n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
           options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -245,14 +249,14 @@ def diver(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "diver"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def bincenter(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def bincenter(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
               optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
               n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
               options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -261,14 +265,14 @@ def bincenter(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "bincenter"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def random(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def random(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
            optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
            n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
            options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -277,14 +281,14 @@ def random(fun, binning_tuples, return_evals=False, return_bin_centers=True,
     optimizer = "random"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)
 
 
 
-def latinhypercube(fun, binning_tuples, return_evals=False, return_bin_centers=True, 
+def latinhypercube(fun, binning_tuples, return_evals=False, return_bin_results=True, return_bin_centers=True, 
                    optima_comparison_rtol=1e-6, optima_comparison_atol=1e-2,
                    n_restarts_per_bin=1, parallelization=None, max_processes=1, task_distribution="even",
                    options={}, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, bin_masking=None, **kwargs):
@@ -295,7 +299,7 @@ def latinhypercube(fun, binning_tuples, return_evals=False, return_bin_centers=T
     optimizer = "latinhypercube"
     optimizer_kwargs = dict(kwargs)
     
-    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals,
+    return _run_optimizer(fun, binning_tuples, optimizer, optimizer_kwargs, return_evals, return_bin_results,
                           return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                           n_restarts_per_bin, parallelization, max_processes, task_distribution,
                           options, n_tasks_per_batch, max_tasks_per_worker, bin_masking)

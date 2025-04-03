@@ -25,7 +25,8 @@ class BinMinBottomUp(BinMinBase):
                  inherit_best_init_point_within_bin=False,
                  accept_target_below=np.inf, accept_delta_target_below=np.inf,
                  accept_guide_below=np.inf, accept_delta_guide_below=np.inf,
-                 save_evals=False, return_evals=False, return_bin_centers=True, 
+                 save_evals=False, return_evals=False, 
+                 return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
                  n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
                  max_n_bins=np.inf):
@@ -81,6 +82,7 @@ class BinMinBottomUp(BinMinBase):
 
         self.save_evals = save_evals
         self.return_evals = return_evals
+        self.return_bin_results = return_bin_results
         self.return_bin_centers = return_bin_centers
 
         self.optima_comparison_rtol = optima_comparison_rtol
@@ -593,6 +595,10 @@ class BinMinBottomUp(BinMinBase):
             # The other containers (x_evals_list, y_evals_list, 
             # n_target_calls_total) where created during step 1 
 
+            x_opt = []
+            y_opt = [float('inf')]
+            optimal_bins = []
+
             print_counter = 0
             while completed_tasks < self.max_n_bins:
                 print_counter += 1
@@ -613,10 +619,21 @@ class BinMinBottomUp(BinMinBase):
                     # 'data' is a list of (bin_index_tuple, result) pairs
                     for current_bin_index_tuple, result, user_bin_check in data:
                         opt_result, n_target_calls, x_points, y_points = result
-                        all_bin_results.append(opt_result)
-                        bin_tuples.append(current_bin_index_tuple)
-                        x_optimal_per_bin.append(opt_result.x)
-                        y_optimal_per_bin.append(opt_result.fun)
+                        # Update global optima (of the target, not the guide)?
+                        if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
+                            x_opt = [opt_result.x]
+                            y_opt = [opt_result.fun]
+                            optimal_bins = [bin_index_tuple]
+                        elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                            x_opt.append(opt_result.x)
+                            y_opt.append(opt_result.fun)
+                            optimal_bins.append(self.all_bin_index_tuples[bin_index])
+                        # Store some results
+                        if self.return_bin_results:                        
+                            all_bin_results.append(opt_result)
+                            bin_tuples.append(current_bin_index_tuple)
+                            x_optimal_per_bin.append(opt_result.x)
+                            y_optimal_per_bin.append(opt_result.fun)
                         n_target_calls_total += n_target_calls
                         if self.return_evals:
                             x_evals_list.extend(x_points)
@@ -690,24 +707,6 @@ class BinMinBottomUp(BinMinBase):
             if self.return_evals:
                 x_evals = np.array(x_evals_list)
                 y_evals = np.array(y_evals_list)
-
-            # Determine the global optimum (target, not guide).
-            x_opt = []
-            y_opt = [float('inf')]
-            optimal_bins = []
-            for i,bin_index_tuple in enumerate(bin_tuples):
-                bin_opt_result = all_bin_results[i]
-                if bin_opt_result is not None:
-                    if bin_opt_result.fun < y_opt[0]:
-                        x_opt = [bin_opt_result.x]
-                        y_opt = [bin_opt_result.fun]
-                        optimal_bins = [bin_tuples[i]]
-                    elif math.isclose(bin_opt_result.fun, y_opt[0],
-                                        rel_tol=self.optima_comparison_rtol,
-                                        abs_tol=self.optima_comparison_atol):
-                        x_opt.append(bin_opt_result.x)
-                        y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(bin_tuples[i])
 
             bin_centers = None
             if self.return_bin_centers:
