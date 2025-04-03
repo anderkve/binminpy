@@ -28,8 +28,9 @@ class BinMinBottomUp(BinMinBase):
                  save_evals=False, return_evals=False, 
                  return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
-                 max_n_bins=np.inf):
+                 n_restarts_per_bin=1, n_tasks_per_batch=1, 
+                 print_progress_every_n_batch=100,
+                 max_tasks_per_worker=np.inf, max_n_bins=np.inf):
         """Constructor."""
 
         self.print_prefix = "BinMinBottomUp:"
@@ -90,6 +91,7 @@ class BinMinBottomUp(BinMinBase):
         self.n_restarts_per_bin = n_restarts_per_bin
 
         self.n_tasks_per_batch = n_tasks_per_batch
+        self.print_progress_every_n_batch = print_progress_every_n_batch
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
 
@@ -605,8 +607,8 @@ class BinMinBottomUp(BinMinBase):
 
                 status = MPI.Status()
 
-                if print_counter % 1 == 0:
-                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
+                if print_counter % self.print_progress_every_n_batch == 0:
+                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Currently planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
                     print_counter = 0
 
                 # Block until any worker returns a result.
