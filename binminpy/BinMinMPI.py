@@ -11,7 +11,7 @@ from binminpy.BinMin import BinMin
 class BinMinMPI(BinMin):
 
     def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
-                 return_evals=False, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 return_evals=False, return_bin_results=True, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
                  n_restarts_per_bin=1, task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
                  bin_masking=None, options={}):
         """Constructor."""
@@ -21,7 +21,7 @@ class BinMinMPI(BinMin):
         size = comm.Get_size()
 
         super().__init__(target_function, binning_tuples, optimizer, optimizer_kwargs, return_evals,
-                         return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
+                         return_bin_results, return_bin_centers, optima_comparison_rtol, optima_comparison_atol, 
                          n_restarts_per_bin, bin_masking)
 
         task_distribution = task_distribution.lower()
@@ -103,20 +103,34 @@ class BinMinMPI(BinMin):
         gathered_results = comm.gather(my_results, root=0)
 
         if rank == 0:
-            all_bin_results = [None] * self.n_bins
-            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
-            y_optimal_per_bin = np.full((self.n_bins,), np.inf)
+            all_bin_results = [None] * self.n_bins if self.return_bin_results else None
+            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan) if self.return_bin_results else None
+            y_optimal_per_bin = np.full((self.n_bins,), np.inf) if self.return_bin_results else None
             n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
 
+            x_opt = []
+            y_opt = [float('inf')]
+            optimal_bins = []
             for proc_dict in gathered_results:
                 for task_index, result in proc_dict.items():
                     bin_index = use_bin_indices[task_index]
                     opt_result, n_target_calls, x_points, y_points = result
-                    all_bin_results[bin_index] = opt_result
-                    x_optimal_per_bin[bin_index] = opt_result.x
-                    y_optimal_per_bin[bin_index] = opt_result.fun
+                    # Update global optima?
+                    if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
+                        x_opt = [opt_result.x]
+                        y_opt = [opt_result.fun]
+                        optimal_bins = [bin_index_tuple]
+                    elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                        x_opt.append(opt_result.x)
+                        y_opt.append(opt_result.fun)
+                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
+                    # Store some results
+                    if self.return_bin_results:
+                        all_bin_results[bin_index] = opt_result
+                        x_optimal_per_bin[bin_index] = opt_result.x
+                        y_optimal_per_bin[bin_index] = opt_result.fun
                     n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
@@ -128,24 +142,6 @@ class BinMinMPI(BinMin):
                 x_evals = np.array(x_evals_list)
                 y_evals = np.array(y_evals_list)
 
-            # Identify the global optimum.
-            x_opt = []
-            y_opt = [float('inf')]
-            optimal_bins = []
-            for bin_index in range(self.n_bins):
-                bin_opt_result = all_bin_results[bin_index]
-                if bin_opt_result is not None:
-                    if bin_opt_result.fun < y_opt[0]:
-                        x_opt = [bin_opt_result.x]
-                        y_opt = [bin_opt_result.fun]
-                        optimal_bins = [self.all_bin_index_tuples[bin_index]]
-                    elif math.isclose(bin_opt_result.fun, y_opt[0],
-                                        rel_tol=self.optima_comparison_rtol,
-                                        abs_tol=self.optima_comparison_atol):
-                        x_opt.append(bin_opt_result.x)
-                        y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
-
             bin_centers = None
             if self.return_bin_centers:
                 bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
@@ -156,7 +152,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int),
+                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
@@ -204,12 +200,16 @@ class BinMinMPI(BinMin):
             tasks = [(task_index, bin_index_tuple) for task_index, bin_index_tuple in enumerate(use_bin_index_tuples)]
             n_tasks = len(tasks)
             next_task_index = 0
-            all_bin_results = [None] * self.n_bins
-            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan)
-            y_optimal_per_bin = np.full((self.n_bins,), np.inf)
+            all_bin_results = [None] * self.n_bins if self.return_bin_results else None
+            x_optimal_per_bin = np.full((self.n_bins, self.n_dims), np.nan) if self.return_bin_results else None
+            y_optimal_per_bin = np.full((self.n_bins,), np.inf) if self.return_bin_results else None
             n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
+
+            x_opt = []
+            y_opt = [float('inf')]
+            optimal_bins = []
 
             # Initially send one batch to each worker.
             for worker in range(1, size):
@@ -229,9 +229,20 @@ class BinMinMPI(BinMin):
                 for task_index, result in result_dict.items():
                     bin_index = use_bin_indices[task_index]
                     opt_result, n_target_calls, x_points, y_points = result
-                    all_bin_results[bin_index] = opt_result
-                    x_optimal_per_bin[bin_index] = opt_result.x
-                    y_optimal_per_bin[bin_index] = opt_result.fun
+                    # Update global optima?
+                    if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
+                        x_opt = [opt_result.x]
+                        y_opt = [opt_result.fun]
+                        optimal_bins = [bin_index_tuple]
+                    elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                        x_opt.append(opt_result.x)
+                        y_opt.append(opt_result.fun)
+                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
+                    # Store some results
+                    if self.return_bin_results:
+                        all_bin_results[bin_index] = opt_result
+                        x_optimal_per_bin[bin_index] = opt_result.x
+                        y_optimal_per_bin[bin_index] = opt_result.fun
                     n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
@@ -252,24 +263,6 @@ class BinMinMPI(BinMin):
                 x_evals = np.array(x_evals_list)
                 y_evals = np.array(y_evals_list)
 
-            # Determine the global optimum.
-            x_opt = []
-            y_opt = [float('inf')]
-            optimal_bins = []
-            for bin_index in range(self.n_bins):
-                bin_opt_result = all_bin_results[bin_index]
-                if bin_opt_result is not None:
-                    if bin_opt_result.fun < y_opt[0]:
-                        x_opt = [bin_opt_result.x]
-                        y_opt = [bin_opt_result.fun]
-                        optimal_bins = [self.all_bin_index_tuples[bin_index]]
-                    elif math.isclose(bin_opt_result.fun, y_opt[0],
-                                        rel_tol=self.optima_comparison_rtol,
-                                        abs_tol=self.optima_comparison_atol):
-                        x_opt.append(bin_opt_result.x)
-                        y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
-
             bin_centers = None
             if self.return_bin_centers:
                 bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
@@ -280,7 +273,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int),
+                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
@@ -403,6 +396,10 @@ class BinMinMPI(BinMin):
             x_evals_list = []
             y_evals_list = []
 
+            x_opt = []
+            y_opt = [float('inf')]
+            optimal_bins = []
+
             current_global_ymin = np.inf
 
             #
@@ -467,10 +464,21 @@ class BinMinMPI(BinMin):
                 x_vals = []
                 for proposal, result in result_tuples:
                     opt_result, n_target_calls, x_points, y_points = result
-                    all_bin_results.append(opt_result)
-                    bin_tuples.append(tuple(proposal))
-                    x_optimal_per_bin.append(opt_result.x)
-                    y_optimal_per_bin.append(opt_result.fun)
+                    # Update global optima?
+                    if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
+                        x_opt = [opt_result.x]
+                        y_opt = [opt_result.fun]
+                        optimal_bins = [bin_index_tuple]
+                    elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
+                        x_opt.append(opt_result.x)
+                        y_opt.append(opt_result.fun)
+                        optimal_bins.append(self.all_bin_index_tuples[bin_index])
+                    # Store some results
+                    if self.return_bin_results:
+                        all_bin_results.append(opt_result)
+                        bin_tuples.append(tuple(proposal))
+                        x_optimal_per_bin.append(opt_result.x)
+                        y_optimal_per_bin.append(opt_result.fun)
                     n_target_calls_total += n_target_calls
                     if self.return_evals:
                         x_evals_list.extend(x_points)
@@ -633,24 +641,6 @@ class BinMinMPI(BinMin):
                 x_evals = np.array(x_evals_list)
                 y_evals = np.array(y_evals_list)
 
-            # Determine the global optimum.
-            x_opt = []
-            y_opt = [float('inf')]
-            optimal_bins = []
-            for i,bin_index_tuple in enumerate(bin_tuples):
-                bin_opt_result = all_bin_results[i]
-                if bin_opt_result is not None:
-                    if bin_opt_result.fun < y_opt[0]:
-                        x_opt = [bin_opt_result.x]
-                        y_opt = [bin_opt_result.fun]
-                        optimal_bins = [bin_tuples[i]]
-                    elif math.isclose(bin_opt_result.fun, y_opt[0],
-                                        rel_tol=self.optima_comparison_rtol,
-                                        abs_tol=self.optima_comparison_atol):
-                        x_opt.append(bin_opt_result.x)
-                        y_opt.append(bin_opt_result.fun)
-                        optimal_bins.append(bin_tuples[i])
-
             bin_centers = None
             if self.return_bin_centers:
                 bin_centers = np.empty((len(bin_tuples), self.n_dims), dtype=float)
@@ -661,7 +651,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(bin_tuples, dtype=int),
+                "bin_tuples": np.array(bin_tuples, dtype=int) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),
