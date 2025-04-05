@@ -144,7 +144,7 @@ class BinMinMPI(BinMin):
 
             bin_centers = None
             if self.return_bin_centers:
-                bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
+                bin_centers = np.empty((self.n_bins, self.n_dims))
                 for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
@@ -152,7 +152,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int) if self.return_bin_results else None,
+                "bin_tuples": np.array(self.all_bin_index_tuples) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
@@ -265,7 +265,7 @@ class BinMinMPI(BinMin):
 
             bin_centers = None
             if self.return_bin_centers:
-                bin_centers = np.empty((self.n_bins, self.n_dims), dtype=float)
+                bin_centers = np.empty((self.n_bins, self.n_dims))
                 for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
@@ -273,7 +273,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int) if self.return_bin_results else None,
+                "bin_tuples": np.array(self.all_bin_index_tuples) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": x_optimal_per_bin,
                 "y_optimal_per_bin": y_optimal_per_bin,
@@ -643,7 +643,7 @@ class BinMinMPI(BinMin):
 
             bin_centers = None
             if self.return_bin_centers:
-                bin_centers = np.empty((len(bin_tuples), self.n_dims), dtype=float)
+                bin_centers = np.empty((len(bin_tuples), self.n_dims))
                 for i, bin_index_tuple in enumerate(bin_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
@@ -651,7 +651,7 @@ class BinMinMPI(BinMin):
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
                 "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(bin_tuples, dtype=int) if self.return_bin_results else None,
+                "bin_tuples": np.array(bin_tuples) if self.return_bin_results else None,
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),

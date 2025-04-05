@@ -536,7 +536,7 @@ class BinMinBottomUp(BinMinBase):
                         candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
                         candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                         candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                        candidate = tuple(candidate)
+                        candidate = tuple(candidate.tolist())
                         new_bins.append(candidate)
                         if len(new_bins) == num_bins:
                             break
@@ -553,7 +553,7 @@ class BinMinBottomUp(BinMinBase):
                     candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
                     candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                     candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                    candidate = tuple(candidate)
+                    candidate = tuple(candidate.tolist())
                     new_bins.append(candidate)
                 return new_bins
 
@@ -712,15 +712,16 @@ class BinMinBottomUp(BinMinBase):
 
             bin_centers = None
             if self.return_bin_centers:
-                bin_centers = np.empty((len(bin_tuples), self.n_dims), dtype=float)
+                bin_centers = np.empty((len(bin_tuples), self.n_dims))
                 for i, bin_index_tuple in enumerate(bin_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
+            # Construct outptu dict
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
-                "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(bin_tuples, dtype=int),
+                "optimal_bins": np.array(optimal_bins),
+                "bin_tuples": np.array(bin_tuples),
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),
