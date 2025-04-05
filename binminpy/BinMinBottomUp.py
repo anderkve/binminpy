@@ -28,8 +28,9 @@ class BinMinBottomUp(BinMinBase):
                  save_evals=False, return_evals=False, 
                  return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
-                 max_n_bins=np.inf):
+                 n_restarts_per_bin=1, n_tasks_per_batch=1, 
+                 print_progress_every_n_batch=100,
+                 max_tasks_per_worker=np.inf, max_n_bins=np.inf):
         """Constructor."""
 
         self.print_prefix = "BinMinBottomUp:"
@@ -90,6 +91,7 @@ class BinMinBottomUp(BinMinBase):
         self.n_restarts_per_bin = n_restarts_per_bin
 
         self.n_tasks_per_batch = n_tasks_per_batch
+        self.print_progress_every_n_batch = print_progress_every_n_batch
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
 
@@ -534,7 +536,7 @@ class BinMinBottomUp(BinMinBase):
                         candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
                         candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                         candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                        candidate = tuple(candidate)
+                        candidate = tuple(candidate.tolist())
                         new_bins.append(candidate)
                         if len(new_bins) == num_bins:
                             break
@@ -551,7 +553,7 @@ class BinMinBottomUp(BinMinBase):
                     candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
                     candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
                     candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                    candidate = tuple(candidate)
+                    candidate = tuple(candidate.tolist())
                     new_bins.append(candidate)
                 return new_bins
 
@@ -605,8 +607,8 @@ class BinMinBottomUp(BinMinBase):
 
                 status = MPI.Status()
 
-                if print_counter % 1 == 0:
-                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
+                if print_counter % self.print_progress_every_n_batch == 0:
+                    print(f"{self.print_prefix} rank {rank}: Completed tasks: {completed_tasks}  Currently planned tasks: {len(tasks)}  Ongoing tasks: {len(ongoing_tasks)}  Available workers: {len(available_workers)}  Target calls: {n_target_calls_total}", flush=True)
                     print_counter = 0
 
                 # Block until any worker returns a result.
@@ -710,15 +712,16 @@ class BinMinBottomUp(BinMinBase):
 
             bin_centers = None
             if self.return_bin_centers:
-                bin_centers = np.empty((len(bin_tuples), self.n_dims), dtype=float)
+                bin_centers = np.empty((len(bin_tuples), self.n_dims))
                 for i, bin_index_tuple in enumerate(bin_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
+            # Construct outptu dict
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
-                "optimal_bins": optimal_bins,
-                "bin_tuples": np.array(bin_tuples, dtype=int),
+                "optimal_bins": np.array(optimal_bins),
+                "bin_tuples": np.array(bin_tuples),
                 "bin_centers": bin_centers,
                 "x_optimal_per_bin": np.array(x_optimal_per_bin),
                 "y_optimal_per_bin": np.array(y_optimal_per_bin),

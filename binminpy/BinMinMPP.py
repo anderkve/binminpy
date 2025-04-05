@@ -29,7 +29,7 @@ class BinMinMPP(BinMin):
             "x_optimal": None,
             "y_optimal": None,
             "optimal_bins": None,
-            "bin_tuples": np.array(self.all_bin_index_tuples, dtype=int) if self.return_bin_results else None,
+            "bin_tuples": np.array(self.all_bin_index_tuples) if self.return_bin_results else None,
             "x_optimal_per_bin": np.full((self.n_bins, self.n_dims), np.nan) if self.return_bin_results else None,
             "y_optimal_per_bin": np.full((self.n_bins,), np.inf) if self.return_bin_results else None,
             "all_bin_results": [None] * self.n_bins if self.return_bin_results else None,
@@ -92,7 +92,7 @@ class BinMinMPP(BinMin):
         output["optimal_bins"] = optimal_bins
 
         if self.return_bin_centers:
-            output["bin_centers"] = np.empty((self.n_bins, self.n_dims), dtype=float)
+            output["bin_centers"] = np.empty((self.n_bins, self.n_dims))
             for i, bin_index_tuple in enumerate(self.all_bin_index_tuples):
                 output["bin_centers"][i] = self.get_bin_center(bin_index_tuple)
 
