@@ -28,6 +28,7 @@ class BinMinBottomUp(BinMinBase):
                  save_evals=False, return_evals=False, 
                  return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
+                 neighborhood_distance=1,
                  n_optim_restarts_per_bin=1, n_tasks_per_batch=1, 
                  print_progress_every_n_batch=100,
                  max_tasks_per_worker=np.inf, max_n_bins=np.inf):
@@ -88,8 +89,9 @@ class BinMinBottomUp(BinMinBase):
 
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
-        self.n_optim_restarts_per_bin = n_optim_restarts_per_bin
 
+        self.neighborhood_distance = neighborhood_distance
+        self.n_optim_restarts_per_bin = n_optim_restarts_per_bin
         self.n_tasks_per_batch = n_tasks_per_batch
         self.print_progress_every_n_batch = print_progress_every_n_batch
         self.max_tasks_per_worker = max_tasks_per_worker
@@ -426,13 +428,13 @@ class BinMinBottomUp(BinMinBase):
                     return g
                 guide_function_wrapper.calls = 0
 
+                use_optimizer_kwargs = copy(self.optimizer_kwargs)
                 try:
-                    # TODO: Allow user control of the optimizer settings here
-                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args)
+                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
                 except ValueError as e:
                     warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
                     use_optimizer_kwargs["method"] = "trust-constr"
-                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args)
+                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
 
                 # The OptimizeResult.fun field should be the target function, so we create
                 # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
@@ -667,7 +669,7 @@ class BinMinBottomUp(BinMinBase):
                                 nice_neighborhood = True
 
                         if nice_neighborhood:
-                            new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, 1)
+                            new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, self.neighborhood_distance)
 
                             # TODO: Can implement an upper bound on the number of planned tasks here
                             if len(tasks) < np.inf:
