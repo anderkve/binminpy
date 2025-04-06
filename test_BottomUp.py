@@ -121,7 +121,7 @@ if __name__ == "__main__":
             return_bin_centers=True,
             optima_comparison_rtol=1e-6,
             optima_comparison_atol=1e-4,
-            n_restarts_per_bin=1,
+            n_optim_restarts_per_bin=1,
             n_tasks_per_batch=10,
             max_tasks_per_worker=np.inf,
             max_n_bins=np.inf,
