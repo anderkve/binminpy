@@ -233,7 +233,7 @@ class BinMinMPI(BinMin):
                     if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
                         x_opt = [opt_result.x]
                         y_opt = [opt_result.fun]
-                        optimal_bins = [bin_index_tuple]
+                        optimal_bins = [self.all_bin_index_tuples[bin_index]]
                     elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
                         x_opt.append(opt_result.x)
                         y_opt.append(opt_result.fun)

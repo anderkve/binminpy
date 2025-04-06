@@ -2,7 +2,7 @@
 binminpy
 ========
 
-A package for parallelised, binned function optimisation.
+A package for binned and parallelised sampling and optimisation.
 """
 
 __version__ = "0.1.0"

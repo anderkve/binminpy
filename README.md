@@ -6,7 +6,7 @@
 
 # binminpy
 
-A Python package for binned and parallelised function optimisation.
+A Python package for binned and parallelised sampling and optimisation.
 
 
 ## Installation

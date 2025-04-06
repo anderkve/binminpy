@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="binminpy",
     version="0.1.0",
-    description="A package for binned and parallelised function optimisation.",
+    description="A package for binned and parallelised sampling and optimisation.",
     author="Anders Kvellestad",
     author_email="anders.kvellestad@fys.uio.no",
     long_description=open("README.md").read(),
@@ -17,13 +17,12 @@ setup(
     ],
     python_requires='>=3.10',
     install_requires=[
-        "numpy>=2.1.3",
-        "scipy>=1.15.2",
-        "matplotlib>=3.10.1",
+        "numpy>=1.25.2",
+        "scipy>=1.9.3",
     ],
     extras_require={
-        'iminuit': ['iminuit>=2.30.1'],
-        'MPI': ['mpi4py>=4.0.3'],
+        'iminuit': ['iminuit>=2.23.0'],
+        'MPI': ['mpi4py>=3.1.1'],
     },
     license="GPLv3+",
 )
