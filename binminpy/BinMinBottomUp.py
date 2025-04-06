@@ -28,7 +28,7 @@ class BinMinBottomUp(BinMinBase):
                  save_evals=False, return_evals=False, 
                  return_bin_results=True, return_bin_centers=True, 
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, n_tasks_per_batch=1, 
+                 n_optim_restarts_per_bin=1, n_tasks_per_batch=1, 
                  print_progress_every_n_batch=100,
                  max_tasks_per_worker=np.inf, max_n_bins=np.inf):
         """Constructor."""
@@ -88,7 +88,7 @@ class BinMinBottomUp(BinMinBase):
 
         self.optima_comparison_rtol = optima_comparison_rtol
         self.optima_comparison_atol = optima_comparison_atol
-        self.n_restarts_per_bin = n_restarts_per_bin
+        self.n_optim_restarts_per_bin = n_optim_restarts_per_bin
 
         self.n_tasks_per_batch = n_tasks_per_batch
         self.print_progress_every_n_batch = print_progress_every_n_batch
@@ -237,70 +237,73 @@ class BinMinBottomUp(BinMinBase):
         # Do the optimization for each sampled point
         # 
 
+        fixed_pars = {i: None for i in self.sampled_parameters}
+        def wrapper_to_fix_pars(x_optimized_pars, *args):
+            x = np.empty(self.n_dims)
+            for i in self.sampled_parameters:
+                x[i] = fixed_pars[i]
+            for j, i in enumerate(self.optimized_parameters):
+                x[i] = x_optimized_pars[j]
+            return guide_function_wrapper(x, *args)
+
         final_res = None
         current_best_opt_pars = [self.get_bin_center(bin_index_tuple)[i] for i in self.optimized_parameters]
-        for x0 in sampled_points:
-            
-            fixed_pars = {i: x0[i] for i in self.sampled_parameters}
+        for _ in range(self.n_optim_restarts_per_bin):
 
-            if self.inherit_best_init_point_within_bin:
-                x0_opt_init = current_best_opt_pars
-            else:
-                x0_opt_init = [x0[i] for i in self.optimized_parameters]
-            bounds_optimized_pars = [bounds[i] for i in self.optimized_parameters]
+            for x0 in sampled_points:
+                
+                fixed_pars = {i: x0[i] for i in self.sampled_parameters}
 
-            def wrapper_to_fix_pars(x_optimized_pars, *args):
-                x = np.empty(self.n_dims)
-                for i in self.sampled_parameters:
-                    x[i] = fixed_pars[i]
-                for j, i in enumerate(self.optimized_parameters):
-                    x[i] = x_optimized_pars[j]
-                return guide_function_wrapper(x, *args)
+                if self.inherit_best_init_point_within_bin:
+                    x0_opt_init = current_best_opt_pars
+                else:
+                    x0_opt_init = [x0[i] for i in self.optimized_parameters]
+                bounds_optimized_pars = [bounds[i] for i in self.optimized_parameters]
 
-            if self.optimizer == "minimize":
-                try:
-                    res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
-                except ValueError as e:
-                    warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
-                    use_optimizer_kwargs["method"] = "trust-constr"
-                    res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
-            elif self.optimizer == "differential_evolution":
-                res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                if self.optimizer == "minimize":
+                    try:
+                        res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                    except ValueError as e:
+                        warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                        use_optimizer_kwargs["method"] = "trust-constr"
+                        res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                elif self.optimizer == "differential_evolution":
+                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
 
-            # The OptimizeResult.fun field should be the target function, so we create
-            # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
-            opt_index = np.argmin(g_points)
-            res.fun = copy(y_points[opt_index])
-            res.guide_fun = copy(g_points[opt_index])
+                # The OptimizeResult.fun field should be the target function, so we create
+                # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
+                opt_index = np.argmin(g_points)
+                res.fun = copy(y_points[opt_index])
+                res.guide_fun = copy(g_points[opt_index])
 
-            full_x_opt = np.zeros(self.n_dims)
-            full_x_opt[list(self.sampled_parameters)] = x0[list(self.sampled_parameters)]
-            full_x_opt[list(self.optimized_parameters)] = res.x
-            res.x = full_x_opt
+                full_x_opt = np.zeros(self.n_dims)
+                full_x_opt[list(self.sampled_parameters)] = x0[list(self.sampled_parameters)]
+                full_x_opt[list(self.optimized_parameters)] = res.x
+                res.x = full_x_opt
 
-            if "jac" in res:
-                jac = np.zeros(self.n_dims)
-                jac[list(self.optimized_parameters)] = res.jac
-                res.jac = jac
+                if "jac" in res:
+                    jac = np.zeros(self.n_dims)
+                    jac[list(self.optimized_parameters)] = res.jac
+                    res.jac = jac
 
-            if "hess_inv" in res:
-                del(res.hess_inv)
+                if "hess_inv" in res:
+                    del(res.hess_inv)
 
-            if return_evals:
-                x_evals_collected.extend(x_points)
-                y_evals_collected.extend(y_points)
+                if return_evals:
+                    x_evals_collected.extend(x_points)
+                    y_evals_collected.extend(y_points)
 
-            x_points = []
-            y_points = []
-            g_points = []
+                x_points = []
+                y_points = []
+                g_points = []
 
-            # Keep the best result from the repetitions
-            if final_res is None:
-                final_res = res
-            else:
-                if res.guide_fun < final_res.guide_fun:
+                # Keep the best result from the repetitions
+                if final_res is None:
                     final_res = res
-                    current_best_opt_pars = [res.x[i] for i in self.optimized_parameters]
+                else:
+                    if res.guide_fun < final_res.guide_fun:
+                        final_res = res
+                        current_best_opt_pars = [res.x[i] for i in self.optimized_parameters]
 
         return final_res, guide_function_wrapper.calls, x_evals_collected, y_evals_collected
 
