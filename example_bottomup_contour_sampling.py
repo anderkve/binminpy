@@ -42,7 +42,7 @@ if __name__ == "__main__":
         sampler="latinhypercube",
         optimizer="minimize",
         optimizer_kwargs={
-            "tol": 1e-6,
+            "tol": 1e-9,
             "method": "L-BFGS-B",
         },
         sampled_parameters=(0,1),
