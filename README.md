@@ -8,9 +8,9 @@
 
 A Python package for binned and parallelised sampling and optimisation.
 
-Binminpy can be run in two different modes:
-- **Standard**: Simple parallelized application of a chosen optimizer across a binned input space.
-- **Bottom-up**: A smart binning mode where the binning is built up gradually to only cover the input space of interest.
+Binminpy can be used in two different modes:
+- [**Standard**](#standard-mode): Simple parallelized application of a chosen optimizer across a binned input space.
+- [**Bottom-up**](#bottom-up-mode): A dynamic binning mode where the binning is built up gradually to only cover the input space of interest.
   - Within each bin the input parameters can either be sampled or optimized. 
 
 See below for examples of both run modes.
@@ -122,12 +122,18 @@ the results from `example.py` will look like this:
 
 # Bottom-up mode
 
-*TODO: add description*
+In the bottom-up mode, binminpy works as follows:
+1. First a number of local optimization runs are performed, to identify all local optima.
+2. Then the input space is binned working outwards from the local optima. For every bin where the optimized target value satisfies some user-defined threshold, the neighboring bins are added as new tasks for binminpy to explore.
+
+Each input parameter can either be sampled or optimized within each bin. 
+
+This run mode is parallelized with MPI through a master-worker pattern.
 
 ## Examples with plotting
 
-*TODO: add description*
-  
+*TODO: Add descriptions of examples*
+
 <img src="./example_plots/example_plot_2D_x0_x1_bottomup.png" alt="2D example plot for the bottom-up mode" width="601"/> 
 
 <img src="./example_plots/example_plot_2D_x0_x1_bottomup_contour_narrow_profiling.png" alt="2D example plot for the bottom-up mode" width="601"/> 
