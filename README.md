@@ -8,14 +8,22 @@
 
 A Python package for binned and parallelised sampling and optimisation.
 
+Binminpy can be run in two different modes:
+- **Standard**: Simple parallelized application of a chosen optimizer across a binned input space.
+- **Bottom-up**: A smart binning mode where the binning is built up gradually to only cover the input space of interest.
+  - Within each bin the input parameters can either be sampled or optimized. 
 
-## Installation
+See below for examples of both run modes.
+
+# Installation
 
 Simply install using `pip`:
 
 ```terminal
 pip install git+https://github.com/anderkve/binminpy.git
 ```
+
+# Standard mode
 
 ## Minimal example
 
@@ -112,12 +120,30 @@ the results from `example.py` will look like this:
 <img src="./example_plots/example_plot_1D_x0_masked.png" alt="1D example plot with masking" width="300"/> <img src="./example_plots/example_plot_1D_x1_masked.png" alt="1D example plot with masking" width="300"/>
 
 
-## Citation
+# Bottom-up mode
+
+*TODO: add description*
+
+## Examples with plotting
+
+*TODO: add description*
+  
+<img src="./example_plots/example_plot_2D_x0_x1_bottomup.png" alt="2D example plot for the bottom-up mode" width="601"/> 
+
+<img src="./example_plots/example_plot_2D_x0_x1_bottomup_contour_narrow_profiling.png" alt="2D example plot for the bottom-up mode" width="601"/> 
+
+<img src="./example_plots/example_plot_2D_x0_x1_bottomup_contour_wide_profiling.png" alt="2D example plot for the bottom-up mode" width="601"/> 
+
+<img src="./example_plots/example_plot_2D_x0_x1_bottomup_contour_sampling.png" alt="2D example plot for the bottom-up mode" width="601"/> 
+
+
+
+# Citation
 
 If you use binminpy in your work, make sure to also acknowledge the paper and/or repository for the optimizer you use.
 
 
-## License
+# License
 
 The license for the binminpy source code is GNU GPLv3 (see the [LICENSE](./LICENSE) file). However, if you use binminpy, make sure to adhere to the license of the optimizer you use.
 
