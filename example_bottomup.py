@@ -7,18 +7,17 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
 
+
 def target_function(x, *args):
-    """A 2D Himmelblau function in (x0,x1) plus a quadratic penalty in x2"""
-    func = 0
-    func += (x[0]**2 + x[1] - 11.)**2 + (x[0] + x[1]**2 - 7.)**2
-    func += x[2]**2
+    # """A 2D Himmelblau function in (x0,x1) with x2 representing a shift of x1"""
+    func = (x[0]**2 + x[1] + x[2] - 11.)**2 + (x[0] + (x[1] + x[2])**2 - 7.)**2
     return func
 
 
 def bin_check_function(bin_result, x_points, y_points):
     bin_accepted = False
     target_opt = bin_result.fun
-    if target_opt < 50.0:
+    if target_opt < 30.0:
         bin_accepted = True
     return bin_accepted
 
@@ -40,7 +39,7 @@ def set_eval_points(bin_index_tuple, bounds):
 
 if __name__ == "__main__":
 
-    binning_tuples = [[-6, 6, 120], [-6, 6, 120], [-3, 3, 1]]
+    binning_tuples = [[-6, 6, 120], [-6, 6, 120], [-0.5, 0.5, 2]]
 
     binned_opt = BinMinBottomUp(
         target_function,
@@ -53,7 +52,7 @@ if __name__ == "__main__":
         sampler="latinhypercube",
         optimizer="minimize",
         optimizer_kwargs={
-            "tol": 1e-6,
+            "tol": 1e-9,
             "method": "L-BFGS-B",
         },
         sampled_parameters=(),
@@ -129,7 +128,7 @@ if __name__ == "__main__":
 
         plt.figure(figsize=(8, 6))
         mesh = plt.pcolormesh(bin_limits_per_dim[0], bin_limits_per_dim[1], grid_values, 
-                              cmap='viridis', vmin=0, vmax=50,
+                              cmap='viridis', vmin=0, vmax=30,
                               edgecolors='none', shading='flat')
         plt.colorbar(mesh, label='Optimized target value in bin')
         plt.xlabel(f'$x_{target_dims[0]}$')
