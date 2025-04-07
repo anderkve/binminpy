@@ -634,7 +634,7 @@ class BinMinBottomUp(BinMinBase):
                         elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
                             x_opt.append(opt_result.x)
                             y_opt.append(opt_result.fun)
-                            optimal_bins.append(self.all_bin_index_tuples[bin_index])
+                            optimal_bins.append(current_bin_index_tuple)
                         # Store some results
                         if self.return_bin_results:                        
                             all_bin_results.append(opt_result)

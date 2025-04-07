@@ -86,7 +86,7 @@ if __name__ == "__main__":
     mesh = plt.pcolormesh(bin_limits_per_dim[0], bin_limits_per_dim[1], grid_values, 
                           cmap='viridis', norm=LogNorm(vmin=1e0, vmax=2e3),
                           edgecolors='none', shading='flat')
-    plt.colorbar(mesh, label='Minimum target function value')
+    plt.colorbar(mesh, label='Optimized target value in bin')
     plt.xlabel(f'$x_{target_dims[0]}$')
     plt.ylabel(f'$x_{target_dims[1]}$')
     ax = plt.gca()
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     plt.xlim([binning_tuples[target_dim][0], binning_tuples[target_dim][1]])
     plt.ylim([0., 250.])
     plt.xlabel(f'$x_{target_dim}$')
-    plt.ylabel(f'Minimum target function value')
+    plt.ylabel(f'Optimized target value in bin')
     minor_tick_positions = np.linspace(binning_tuples[target_dim][0], binning_tuples[target_dim][1], binning_tuples[target_dim][2] + 1)
     ax = plt.gca()
     ax.xaxis.set_minor_locator(ticker.FixedLocator(minor_tick_positions))
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     plt.xlim([binning_tuples[target_dim][0], binning_tuples[target_dim][1]])
     plt.xlabel(f'$x_{target_dim}$')
     plt.ylim([0., 250.])
-    plt.ylabel(f'Minimum target function value')
+    plt.ylabel(f'Optimized target value in bin')
     minor_tick_positions = np.linspace(binning_tuples[target_dim][0], binning_tuples[target_dim][1], binning_tuples[target_dim][2] + 1)
     ax = plt.gca()
     ax.xaxis.set_minor_locator(ticker.FixedLocator(minor_tick_positions))

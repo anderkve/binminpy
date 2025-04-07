@@ -18,10 +18,10 @@ datasets = [
     ("y",   ("y", float)),
     ("x0",  ("x0", float)),
     ("x1",  ("x1", float)),
-    ("x2",  ("x2", float)),
-    ("x3",  ("x3", float)),
-    # ("x4",  ("x4", float)),
-    # ("x5",  ("x5", float)),
+    # ("x2",  ("x2", float)),
+    # ("x3",  ("x3", float)),
+    # # ("x4",  ("x4", float)),
+    # # ("x5",  ("x5", float)),
 ]
 
 # Now create our main data dictionary by reading the hdf5 files
@@ -44,17 +44,17 @@ likelihood_ratio_contour_values = plot_utils.get_2D_likelihood_ratio_levels(conf
 
 x_keys = [
     "x0", 
-    "x1", 
-    "x2",
-    # "x3",
-    # "x4",
+    # "x1", 
+    # "x2",
+    # # "x3",
+    # # "x4",
 ]
 y_keys = [
     "x1", 
-    "x2", 
-    "x3",
-    # "x4",
-    # "x5",
+    # "x2", 
+    # "x3",
+    # # "x4",
+    # # "x5",
 ]
 z_keys = [
     "loglike",
