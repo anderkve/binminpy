@@ -39,7 +39,7 @@ def target_function(x):
              + (x[1]**2 + x[2] - 11.)**2 + (x[1] + x[2]**2 - 7.)**2 )
     return func
 
-# Example binning setup for a 3D input space using 10x10x5 bins.
+# Example binning setup for a 3D input space using 60x60x5 bins.
 binning_tuples = [(-6.0, 6.0, 60), (-6.0, 6.0, 60), (-6.0, 6.0, 5)]
 
 # Run binminpy.minimize, parallelized with four processes
@@ -59,7 +59,7 @@ result = binminpy.minimize(
 
 ## Parallelization
 
-binminpy can be run in five different parallelization modes:
+For the standard mode binminpy can be run with five different parallelization settings:
 
 - **serial**: No parallelization.
 - **MPP**: Distribute tasks evenly across multiple processes using `Pool` from `multiprocessing`.
@@ -122,19 +122,34 @@ the results from `example.py` will look like this:
 
 # Bottom-up mode
 
+The main purpose of the bottom-up mode is to allow binned sampling/optimization in limited to the regions of input parameter space that satisfy some user-defined criterion, while ignoring the rest of the input space. 
+
 In the bottom-up mode, binminpy works as follows:
-1. First a number of local optimization runs are performed, to identify all local optima.
-2. Then the input space is binned working outwards from the local optima. For every bin where the optimized target value satisfies some user-defined threshold, the neighboring bins are added as new tasks for binminpy to explore.
+1. A number of local optimization runs are performed, to identify all local optima.
+2. The input space is binned working outwards from the local optima. For every bin that satisfies a user-defined threshold, the neighboring bins are added as new tasks for binminpy to explore.
 
-Each input parameter can either be sampled or optimized within each bin. 
+The user decides which of the input parameters should be sampled and which should be optimized within each bin, and the methods used for sampling and optimization. Alternatively, the user can provide their own function that controls how parameter points are selected within each bin.
 
-This run mode is parallelized with MPI through a master-worker pattern.
+The bottom-up run mode is parallelized with MPI (`mpi4py`) through a master-worker pattern.
 
 ## Examples with plotting
 
-*TODO: Add descriptions of examples*
+In `example_bottomup.py` the bottom-up binning strategy is demonstrated on a three-parameter example: 
+- The target function is a 2D Himmelblau function in `x[0]` and `x[1]`, with the third parameter `x[2]` representing a possible small shift/uncertainty in `x[1]`.
+- Binning:
+  - `x[0]`: Range (-6.0, 6.0), divided into 120 bins
+  - `x[1]`: Range (-6.0, 6.0), divided into 120 bins
+  - `x[2]`: Range (-0.5, 0.5), divided into 2 bins
+- All three parameters are optimized within each bin
+- Criterion for adding neighboring bins: target value < 30
+
+Running `mpiexec -np <N> python example_bottomup.py` with the number of processes (`N`) larger than 1 should produce a result similar to this:
 
 <img src="./example_plots/example_plot_2D_x0_x1_bottomup.png" alt="2D example plot for the bottom-up mode" width="601"/> 
+
+This shows how the optimum regions of the Himmelblau function have been binned, and that the optimum regions are somewhat elongated in the `x[1]` direction due to the optimization over the shift parameter `x[2]`. 
+
+*TODO: Add descriptions of remaining examples*
 
 <img src="./example_plots/example_plot_2D_x0_x1_bottomup_contour_narrow_profiling.png" alt="2D example plot for the bottom-up mode" width="601"/> 
 
