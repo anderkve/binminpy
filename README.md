@@ -122,11 +122,13 @@ the results from `example.py` will look like this:
 
 # Bottom-up mode
 
-The main purpose of the bottom-up mode is to allow binned sampling/optimization in limited to the regions of input parameter space that satisfy some user-defined criterion, while ignoring the rest of the input space. 
+The main purpose of the bottom-up mode is to allow binned sampling/optimization limited to the regions of input parameter space that satisfy some user-defined criterion, while ignoring the rest of the input space. 
 
-In the bottom-up mode, binminpy works as follows:
+In the bottom-up mode binminpy works as follows:
 1. A number of local optimization runs are performed, to identify all local optima.
-2. The input space is binned working outwards from the local optima. For every bin that satisfies a user-defined threshold, the neighboring bins are added as new tasks for binminpy to explore.
+  - In most applications the function optimized at this stage will be the main target fuction. But if the user wants to bin other parts of input space, they can instead provide a "guide function" — see example below for how this can be used to e.g. place bins along a contour of the original target function.
+2. The input space is binned working outwards from the local optima.
+  - For every bin that satisfies a user-defined threshold, the neighboring bins are added as new tasks for binminpy to explore.
 
 The user decides which of the input parameters should be sampled and which should be optimized within each bin, and the methods used for sampling and optimization. Alternatively, the user can provide their own function that controls how parameter points are selected within each bin.
 
