@@ -127,7 +127,7 @@ class BinMinBottomUp(BinMinBase):
         if self.sampler not in known_samplers:
             raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
 
-        known_optimizers = ["minimize", "differential_evolution"]
+        known_optimizers = ["minimize", "differential_evolution", "basinhopping", "shgo", "dual_annealing", "direct", "iminuit", "diver"]
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
@@ -271,6 +271,49 @@ class BinMinBottomUp(BinMinBase):
                         res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
                 elif self.optimizer == "differential_evolution":
                     res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                elif self.optimizer == "basinhopping":
+                    from scipy.optimize import basinhopping
+                    if not "minimizer_kwargs" in use_optimizer_kwargs:
+                        use_optimizer_kwargs["minimizer_kwargs"] = {}
+                    if "args" in use_optimizer_kwargs:
+                        use_optimizer_kwargs["minimizer_kwargs"]["args"] = copy(use_optimizer_kwargs["args"])
+                        del(use_optimizer_kwargs["args"])
+                    res = basinhopping(wrapper_to_fix_pars, x0_opt_init, **use_optimizer_kwargs)
+                elif self.optimizer == "shgo":
+                    from scipy.optimize import shgo
+                    res = shgo(wrapper_to_fix_pars, bounds_optimized_pars, **use_optimizer_kwargs)
+                elif self.optimizer == "dual_annealing":
+                    from scipy.optimize import dual_annealing
+                    res = dual_annealing(wrapper_to_fix_pars, bounds_optimized_pars, **use_optimizer_kwargs)
+                elif self.optimizer == "direct":
+                    from scipy.optimize import direct
+                    res = direct(wrapper_to_fix_pars, bounds_optimized_pars, **use_optimizer_kwargs)
+                elif self.optimizer == "iminuit":
+                    from iminuit import minimize as iminuit_minimize
+                    res = iminuit_minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, **use_optimizer_kwargs)
+                    # We need to delete the iminuit.Minuit instance from the result 
+                    # (of type scipy.optimize.OptimizeResult), since the Minuit 
+                    # instance cannot be pickled and therefore would break parallelization.
+                    del(res["minuit"]) 
+                elif self.optimizer == "diver":
+                    # Note: Diver should be built *without* MPI, to avoid 
+                    # interference with binminpy's parallelization. 
+                    import diver
+                    def diver_target(x, fcall, finish, validvector, context):
+                        finish = False
+                        if not validvector:
+                            objective = 1e300
+                        else: 
+                            objective = wrapper_to_fix_pars(x)
+                        return objective, fcall+1, finish
+                    diver_opts = copy(use_optimizer_kwargs)
+                    diver_opts["lowerbounds"] = [b[0] for b in bounds_optimized_pars]
+                    diver_opts["upperbounds"] = [b[1] for b in bounds_optimized_pars]
+                    diver_result = diver.run(diver_target, diver_opts)
+                    res = OptimizeResult(
+                        x=diver_result[1],
+                        fun=diver_result[0],
+                    )
 
                 # The OptimizeResult.fun field should be the target function, so we create
                 # a new field OptimizeResult.guide_fun for best-fit value of the guide function.

@@ -15,7 +15,7 @@ def target_function(x, *args):
 
 
 def bin_check_function(bin_result, x_points, y_points):
-    bin_accepted = bool(bin_result.guide_fun < 1.0)
+    bin_accepted = bool(bin_result.fun < 30.0)
     return bin_accepted
 
 
