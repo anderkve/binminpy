@@ -131,6 +131,6 @@ if __name__ == "__main__":
         plt.xlabel(f'$x_{target_dims[0]}$')
         plt.ylabel(f'$x_{target_dims[1]}$')
         ax = plt.gca()
-        ax.xaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[0]))
-        ax.yaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[1]))
+        ax.xaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[0][::2]))
+        ax.yaxis.set_minor_locator(ticker.FixedLocator(bin_limits_per_dim[1][::2]))
         plt.savefig('plot_2D_x0_x1.pdf')
