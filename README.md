@@ -182,10 +182,7 @@ The example in `example_bottomup_contour.py` illustrates how the bottom-up mode 
       return contour_chi2
 
   def bin_check_function(bin_result, x_points, y_points):
-      bin_accepted = False
-      guide_opt = bin_result.guide_fun
-      if guide_opt < 1.0:
-          bin_accepted = True
+      bin_accepted = bool(bin_result.guide_fun < 1.0)
       return bin_accepted
   ```
   - The `guide_function` is a dummy chi^2 function that is minimized when the target function (the Himmelblau function) is close to y = 80, where "close to" is defined by the width (10 in the example above). 
