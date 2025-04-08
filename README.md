@@ -10,8 +10,7 @@ A Python package for binned and parallelised sampling and optimisation.
 
 Binminpy can be used in two different modes:
 - [**Standard**](#standard-mode): Simple parallelized application of a chosen optimizer across a binned input space.
-- [**Bottom-up**](#bottom-up-mode): A dynamic binning mode where the binning is built up gradually to only cover the input space of interest.
-  - Within each bin the input parameters can either be sampled or optimized. 
+- [**Bottom-up**](#bottom-up-mode): A dynamic binning mode where the binning is built up gradually to only cover the input space of interest. Within each bin each input parameter can either be sampled or optimized. 
 
 See below for examples of both run modes.
 
