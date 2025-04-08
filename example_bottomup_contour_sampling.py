@@ -20,10 +20,7 @@ def guide_function(x, y, *args):
 
 
 def bin_check_function(bin_result, x_points, y_points):
-    bin_accepted = False
-    guide_opt = bin_result.guide_fun
-    if guide_opt < 1.0:
-        bin_accepted = True
+    bin_accepted = bool(bin_result.guide_fun < 1.0)
     return bin_accepted
 
 
@@ -82,7 +79,7 @@ if __name__ == "__main__":
         import matplotlib.ticker as ticker
         plt.rcParams.update({'font.size': 14})
 
-        # Make a binned 2D plot in dimensions 0 and 1
+        # Make a 2D scatter plot in dimensions 0 and 1
         target_dims = [0,1]
         min_bin_indices = binminpy.get_min_bins(result["bin_tuples"], result["y_optimal_per_bin"], target_dims=target_dims)
         x_data = result["x_evals"][:,target_dims]

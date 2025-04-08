@@ -21,10 +21,7 @@ def guide_function(x, y, *args):
 
 
 def bin_check_function(bin_result, x_points, y_points):
-    bin_accepted = False
-    guide_opt = bin_result.guide_fun
-    if guide_opt < 1.0:
-        bin_accepted = True
+    bin_accepted = bool(bin_result.guide_fun < 1.0)
     return bin_accepted
 
 
