@@ -79,8 +79,12 @@ class BinMinBottomUp(BinMinBase):
 
         self.accept_target_below = accept_target_below
         self.accept_delta_target_below = accept_delta_target_below
-        self.accept_guide_below = accept_guide_below
-        self.accept_delta_guide_below = accept_delta_guide_below
+        if guide_function is None:
+            self.accept_guide_below = self.accept_target_below
+            self.accept_delta_guide_below = self.accept_delta_target_below
+        else:
+            self.accept_guide_below = accept_guide_below
+            self.accept_delta_guide_below = accept_delta_guide_below
 
         self.save_evals = save_evals
         self.return_evals = return_evals
