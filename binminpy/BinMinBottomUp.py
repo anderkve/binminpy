@@ -127,7 +127,7 @@ class BinMinBottomUp(BinMinBase):
         self.n_sampled_dims = len(self.sampled_parameters)
         self.n_optimized_dims = len(self.optimized_parameters)
 
-        known_samplers = ["random", "latinhypercube"]
+        known_samplers = ["random", "latinhypercube", "bincenter"]
         if self.sampler not in known_samplers:
             raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
 
@@ -159,6 +159,13 @@ class BinMinBottomUp(BinMinBase):
         elif self.sampler == "latinhypercube":
             lh_sampler = LatinHypercube(d=self.n_dims)
             sampled_points = x_lower_lims + lh_sampler.random(n=n) * (x_upper_lims - x_lower_lims)
+        elif self.sampler == "bincenter":
+            bin_center = 0.5 * (x_lower_lims + x_upper_lims)
+            sampled_points = np.array([bin_center])
+            # If n > 1, add random points
+            if n > 1:
+                random_points = x_lower_lims + np.random.random((n-1, self.n_dims)) * (x_upper_lims - x_lower_lims)
+                sampled_points = np.vstack((sampled_points, random_points))
         return sampled_points        
 
 
