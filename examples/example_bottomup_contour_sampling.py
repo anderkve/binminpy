@@ -43,7 +43,6 @@ if __name__ == "__main__":
             "method": "L-BFGS-B",
         },
         sampled_parameters=(0,1),
-        optimized_parameters=(),
         # set_eval_points=set_eval_points,
         # set_eval_points_on_rank_0=True,
         n_initial_points=100,

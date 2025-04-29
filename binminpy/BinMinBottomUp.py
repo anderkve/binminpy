@@ -19,7 +19,7 @@ class BinMinBottomUp(BinMinBase):
                  callback=None, callback_on_rank_0=True,
                  sampler="latinhypercube", 
                  optimizer="minimize", optimizer_kwargs={},
-                 sampled_parameters=None, optimized_parameters=None,
+                 sampled_parameters=None, 
                  set_eval_points=None, set_eval_points_on_rank_0=True,
                  n_initial_points=10, n_sampler_points_per_bin=10,
                  inherit_best_init_point_within_bin=False,
@@ -66,7 +66,6 @@ class BinMinBottomUp(BinMinBase):
         self.optimizer = optimizer
         self.optimizer_kwargs = optimizer_kwargs
         self.sampled_parameters = sampled_parameters
-        self.optimized_parameters = optimized_parameters
         self.set_eval_points = set_eval_points
         self.set_eval_points_on_rank_0 = set_eval_points_on_rank_0
 
@@ -101,28 +100,14 @@ class BinMinBottomUp(BinMinBase):
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
 
-        if (self.sampled_parameters is not None):
+        # Parameters that are not listed in sampled_parameters will be optimized
+        all_parameters = tuple(range(self.n_dims))
+        if self.sampled_parameters is None:
+            self.optimized_parameters = all_parameters
+        else:
             if not isinstance(self.sampled_parameters, tuple):
                 self.sampled_parameters = tuple([self.sampled_parameters])
-        if (self.optimized_parameters is not None):
-            if not isinstance(self.optimized_parameters, tuple):
-                self.optimized_parameters = tuple([self.optimized_parameters])
-
-        if (self.sampled_parameters is None) and (self.optimized_parameters is None):
-            self.sampled_parameters = tuple(range(self.n_dims))
-            self.optimized_parameters = ()
-        elif (self.sampled_parameters is not None) and (self.optimized_parameters is None):
-            if len(self.sampled_parameters) != self.n_dims:
-                raise Exception(f"{self.print_prefix} When specified, the 'sampled_parameters' and 'optimized_parameters' tuples must together contain all parameter indices.")
-            self.optimized_parameters = ()
-        elif (self.sampled_parameters is None) and (self.optimized_parameters is not None):
-            if len(self.optimized_parameters) != self.n_dims:
-                raise Exception(f"{self.print_prefix} When specified, the 'sampled_parameters' and 'optimized_parameters' tuples must together contain all parameter indices.")
-            self.sampled_parameters = ()
-        else:
-            for param_i in range(self.n_dims):
-                if param_i not in self.sampled_parameters + self.optimized_parameters:
-                    raise Exception(f"{self.print_prefix} Parameter index {i} is not listed in 'sampled_parameters' or 'optimized_parameters'")
+            self.optimized_parameters = tuple(set(all_parameters).difference(self.sampled_parameters))
 
         self.n_sampled_dims = len(self.sampled_parameters)
         self.n_optimized_dims = len(self.optimized_parameters)
