@@ -3,7 +3,6 @@ import numpy as np
 from copy import copy
 import warnings
 import itertools
-from functools import partial
 from mpi4py import MPI
 import bisect
 from itertools import product
@@ -154,6 +153,11 @@ class BinMinBottomUp(BinMinBase):
             if self.optimizer_kwargs["bounds"] is not None:
                 warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'optimizer_kwargs' dictionary will be overridden.")
             del(self.optimizer_kwargs["bounds"])
+
+        if "bounds" in self.initial_optimizer_kwargs:
+            if self.initial_optimizer_kwargs["bounds"] is not None:
+                warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'initial_optimizer_kwargs' dictionary will be overridden.")
+            del(self.initial_optimizer_kwargs["bounds"])
 
         if "args" in optimizer_kwargs.keys():
             warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'optimizer_kwargs' dictionary.")
