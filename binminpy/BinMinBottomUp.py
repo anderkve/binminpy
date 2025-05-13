@@ -13,9 +13,10 @@ from scipy.stats.qmc import LatinHypercube
 
 from binminpy.BinMin import BinMinBase
 
-
-def _picklable_guide_function_wrapper(x, instance, *args):
-    return instance._guide_function_wrapper(x, *args)
+# Module level containers (due to pickling)
+_x_points_per_rank = []
+_y_points_per_rank = []
+_g_points_per_rank = []
 
 
 class BinMinBottomUp(BinMinBase):
@@ -141,10 +142,7 @@ class BinMinBottomUp(BinMinBase):
             warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'optimizer_kwargs' dictionary.")
             optimizer_kwargs["args"] = args
 
-        # Containers and counters used for internal bookkeeping
-        self._x_points_per_rank = []
-        self._y_points_per_rank = []
-        self._g_points_per_rank = []
+        # Counter used for internal bookkeeping
         self._guide_function_wrapper_calls = 0
 
 
@@ -154,17 +152,19 @@ class BinMinBottomUp(BinMinBase):
 
 
     def _guide_function_wrapper(self, x, *args):
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
         self._guide_function_wrapper_calls += 1
         y = self.target_function(x, *args)
         g = self.guide_function(x, y, *args)
         # if self.return_evals or self.save_evals:
-        self._x_points_per_rank.append(copy(x))
-        self._y_points_per_rank.append(copy(y))
-        self._g_points_per_rank.append(copy(g))
-        # print(f"rank {rank}: _guide_function_wrapper:  x = {x}  g = {g}", flush=True)
+        _x_points_per_rank.append(copy(x))
+        _y_points_per_rank.append(copy(y))
+        _g_points_per_rank.append(copy(g))
+        # comm = MPI.COMM_WORLD
+        # rank = comm.Get_rank()
+        # print(f"rank {rank}: _guide_function_wrapper:  x = {x}  g = {g}  len(_g_points_per_rank) = {len(_g_points_per_rank)}", flush=True)
         return g
 
 
@@ -190,6 +190,10 @@ class BinMinBottomUp(BinMinBase):
     def _worker_function(self, bin_index_tuple, eval_points=None, return_evals=False):
         """Function to optimize the target function within a set of bounds"""
 
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
+
         # Run user-defined set_eval_points function on this worker process?
         if (eval_points is None) and self.set_eval_points_from_worker:
             bounds = self.get_bin_limits(bin_index_tuple)
@@ -198,9 +202,9 @@ class BinMinBottomUp(BinMinBase):
         x_evals_collected = []
         y_evals_collected = []
 
-        self._x_points_per_rank = []
-        self._y_points_per_rank = []
-        self._g_points_per_rank = []
+        _x_points_per_rank = []
+        _y_points_per_rank = []
+        _g_points_per_rank = []
         self._guide_function_wrapper_calls = 0
 
         # If the evaluation points have already been decided, use them
@@ -211,15 +215,15 @@ class BinMinBottomUp(BinMinBase):
             for x in eval_points:
                 g = self._guide_function_wrapper(x, *self.args)
                 if g < current_g_opt:
-                    current_x_opt = self._x_points_per_rank[-1]
-                    current_y_opt = self._y_points_per_rank[-1]
+                    current_x_opt = _x_points_per_rank[-1]
+                    current_y_opt = _y_points_per_rank[-1]
                     current_g_opt = g
             final_res = OptimizeResult(
                 x=current_x_opt,
                 fun=current_y_opt,
                 guide_fun=current_g_opt,
             )
-            return final_res, self.guide_function_wrapper.calls, copy(self._x_points_per_rank), copy(self._y_points_per_rank)
+            return final_res, self.guide_function_wrapper.calls, copy(_x_points_per_rank), copy(_y_points_per_rank)
 
         # Since eval_points was not provided we proceed to generate points 
         # by sampling + optimization
@@ -243,15 +247,15 @@ class BinMinBottomUp(BinMinBase):
             for x in sampled_points:
                 g = self._guide_function_wrapper(x, *self.args)
                 if g < current_g_opt:
-                    current_x_opt = self._x_points_per_rank[-1]
-                    current_y_opt = self._y_points_per_rank[-1]
+                    current_x_opt = _x_points_per_rank[-1]
+                    current_y_opt = _y_points_per_rank[-1]
                     current_g_opt = g
             final_res = OptimizeResult(
                 x=current_x_opt,
                 fun=current_y_opt,
                 guide_fun=current_g_opt,
             )
-            return final_res, self._guide_function_wrapper_calls, copy(self._x_points_per_rank), copy(self._y_points_per_rank)
+            return final_res, self._guide_function_wrapper_calls, copy(_x_points_per_rank), copy(_y_points_per_rank)
 
         # 
         # Do the optimization for each sampled point
@@ -335,9 +339,9 @@ class BinMinBottomUp(BinMinBase):
 
                 # The OptimizeResult.fun field should be the target function, so we create
                 # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
-                opt_index = np.argmin(self._g_points_per_rank)
-                res.fun = copy(self._y_points_per_rank[opt_index])
-                res.guide_fun = copy(self._g_points_per_rank[opt_index])
+                opt_index = np.argmin(_g_points_per_rank)
+                res.fun = copy(_y_points_per_rank[opt_index])
+                res.guide_fun = copy(_g_points_per_rank[opt_index])
 
                 full_x_opt = np.zeros(self.n_dims)
                 full_x_opt[list(self.sampled_parameters)] = x0[list(self.sampled_parameters)]
@@ -353,12 +357,12 @@ class BinMinBottomUp(BinMinBase):
                     del(res.hess_inv)
 
                 if return_evals:
-                    x_evals_collected.extend(self._x_points_per_rank)
-                    y_evals_collected.extend(self._y_points_per_rank)
+                    x_evals_collected.extend(_x_points_per_rank)
+                    y_evals_collected.extend(_y_points_per_rank)
 
-                self._x_points_per_rank = []
-                self._y_points_per_rank = []
-                self._g_points_per_rank = []
+                _x_points_per_rank = []
+                _y_points_per_rank = []
+                _g_points_per_rank = []
 
                 # Keep the best result from the repetitions
                 if final_res is None:
@@ -381,6 +385,10 @@ class BinMinBottomUp(BinMinBase):
           On rank 0: a dictionary containing global optimization results.
           On other ranks: None.
         """
+
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
 
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
@@ -475,9 +483,9 @@ class BinMinBottomUp(BinMinBase):
                     # Worker process: receive optimization task, perform it, and wait at barrier
                     x0, bounds = data
 
-                    self._x_points_per_rank = []
-                    self._y_points_per_rank = []
-                    self._g_points_per_rank = []
+                    _x_points_per_rank = []
+                    _y_points_per_rank = []
+                    _g_points_per_rank = []
 
                     use_optimizer_kwargs = copy(self.optimizer_kwargs)
                     try:
@@ -489,16 +497,16 @@ class BinMinBottomUp(BinMinBase):
 
                     # The OptimizeResult.fun field should be the target function, so we create
                     # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
-                    opt_index = np.argmin(self._g_points_per_rank)
-                    res.fun = copy(self._y_points_per_rank[opt_index])
-                    res.guide_fun = copy(self._g_points_per_rank[opt_index])
+                    opt_index = np.argmin(_g_points_per_rank)
+                    res.fun = copy(_y_points_per_rank[opt_index])
+                    res.guide_fun = copy(_g_points_per_rank[opt_index])
 
                     if (not self.return_evals) and (not self.save_evals):
-                        self._x_points_per_rank = []
-                        self._y_points_per_rank = []
-                        self._g_points_per_rank = []
+                        _x_points_per_rank = []
+                        _y_points_per_rank = []
+                        _g_points_per_rank = []
 
-                    return_tuple = (res, self._guide_function_wrapper_calls, copy(self._x_points_per_rank), copy(self._y_points_per_rank), x0)
+                    return_tuple = (res, self._guide_function_wrapper_calls, copy(_x_points_per_rank), copy(_y_points_per_rank), x0)
 
                     if self.save_evals:
                         import h5py
@@ -512,9 +520,9 @@ class BinMinBottomUp(BinMinBase):
                                     f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
 
                                 if dset_name[0] == "x":
-                                    new_data = np.array(self._x_points_per_rank)[:,i]
+                                    new_data = np.array(_x_points_per_rank)[:,i]
                                 elif dset_name == "y":
-                                    new_data = np.array(self._y_points_per_rank)
+                                    new_data = np.array(_y_points_per_rank)
                                 dset = f[dset_name]
                                 current_size = dset.shape[0]
                                 new_size = new_data.shape[0]
@@ -537,47 +545,47 @@ class BinMinBottomUp(BinMinBase):
             # Use the full input space during the initial optimization
             bounds = [(bt[0], bt[1]) for bt in self.binning_tuples]
 
-            self._x_points_per_rank = []
-            self._y_points_per_rank = []
-            self._g_points_per_rank = []
+            _x_points_per_rank = []
+            _y_points_per_rank = []
+            _g_points_per_rank = []
 
-            with MPICommExecutor(comm, root=0) as executor:
+            # with MPICommExecutor(comm, root=0) as executor:
+            with MPICommExecutor(comm, root=0, use_dill=True) as executor:
 
                 # Only rank 0 gets a non-None executor
                 if rank == 0:
+                    print(f"{self.print_prefix} rank {rank}: Running initial global optimization...", flush=True)
                     result = differential_evolution(
-                        partial(_picklable_guide_function_wrapper, instance=self),
+                        self._guide_function_wrapper,
                         bounds,
                         args=self.args,
                         popsize=max(15*self.n_dims, n_workers),
+                        maxiter=100,
+                        tol=0.01,
                         strategy="best1bin", # "rand1bin"
                         updating="deferred",
                         workers=executor.map
                     )
 
-                    opt_index = np.argmin(self._g_points_per_rank)
-                    result.fun = copy(self._y_points_per_rank[opt_index])
-                    result.guide_fun = copy(self._g_points_per_rank[opt_index])
-
-                    print(f"{self.print_prefix} rank {rank}: Initial optimization result:  x = {result.x}, y = {result.fun}, guide = {result.guide_fun}", flush=True)
+            print(f"{self.print_prefix} rank {rank}:  len(_x_points_per_rank) = {len(_x_points_per_rank)}", flush=True)
 
             # Reset counter
             self._guide_function_wrapper_calls = 0
 
             # Gather all points at rank 0
-            x_points_gathered = comm.gather(self._x_points_per_rank, root=0)
-            y_points_gathered = comm.gather(self._y_points_per_rank, root=0)
-            g_points_gathered = comm.gather(self._g_points_per_rank, root=0)
+            x_points_gathered = comm.gather(_x_points_per_rank, root=0)
+            y_points_gathered = comm.gather(_y_points_per_rank, root=0)
+            g_points_gathered = comm.gather(_g_points_per_rank, root=0)
 
             if rank == 0:
-
-                # Keep track of the function calls
-                n_target_calls_total += len(self._y_points_per_rank)
 
                 # Flatten the lists
                 x_points = [x for sub_list in x_points_gathered for x in sub_list]
                 y_points = [y for sub_list in y_points_gathered for y in sub_list]
                 g_points = [g for sub_list in g_points_gathered for g in sub_list]
+
+                # Keep track of the function calls
+                n_target_calls_total += len(y_points)
 
                 # Find the best point
                 min_idx = np.argmin(g_points)
@@ -590,7 +598,12 @@ class BinMinBottomUp(BinMinBase):
                 for i in range(n_pts):
                     y = y_points[i]
                     g = g_points[i]
-                    if (    (y < self.accept_target_below)
+
+                    if self.bin_check_function is not None:
+                        x = x_points[i]
+                        if self.bin_check_function(OptimizeResult(x=x, fun=y, guide_fun=g), [x], [y]):
+                            keep_indices.append(i)
+                    elif (    (y < self.accept_target_below)
                          or (y - y_min < self.accept_delta_target_below) 
                          or (g < self.accept_guide_below)
                          or (g - g_min < self.accept_delta_guide_below) ):
@@ -598,9 +611,9 @@ class BinMinBottomUp(BinMinBase):
 
                 initial_opt_results = [(copy(x_points[i]), copy(y_points[i]), copy(g_points[i])) for i in keep_indices]
 
-            self._x_points_per_rank = [] 
-            self._y_points_per_rank = [] 
-            self._g_points_per_rank = []
+            _x_points_per_rank = [] 
+            _y_points_per_rank = [] 
+            _g_points_per_rank = []
 
             del x_points_gathered
             del y_points_gathered
@@ -631,7 +644,8 @@ class BinMinBottomUp(BinMinBase):
                 bisect.insort(initial_opt_tuples, add_pair)
 
             # Start constructing the initial set of tasks
-            print(f"{self.print_prefix} rank {rank}: Growing bins from {len(initial_opt_tuples)} points.", flush=True)
+            # print(f"{self.print_prefix} rank {rank}: Growing bins from {len(initial_opt_tuples)} initial bins:\n{[bin_index_tuple for g, bin_index_tuple in initial_opt_tuples]}", flush=True)
+            # print(f"{self.print_prefix} rank {rank}: Growing bins from {len(initial_opt_tuples)} points.", flush=True)
             completed_tasks = 0
             ongoing_tasks = []
             available_workers = list(range(1, n_workers+1)) 
@@ -642,6 +656,10 @@ class BinMinBottomUp(BinMinBase):
                 if bin_index_tuple not in planned_and_completed_tasks:
                     planned_and_completed_tasks.add(bin_index_tuple)
                     tasks.append(bin_index_tuple)
+
+            # print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins:\n{planned_and_completed_tasks}", flush=True)
+            print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins.", flush=True)
+
 
             if len(tasks) == 0:
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
