@@ -57,8 +57,17 @@ if __name__ == "__main__":
         # set_eval_points_on_rank_0=True,
         # initial_optimizer="minimize",
         # n_initial_points=10,
+        # initial_optimizer_kwargs={
+        #     "tol": 1e-9,
+        #     "method": "L-BFGS-B",
+        # },
         initial_optimizer="differential_evolution",
-        n_initial_points=1,
+        initial_optimizer_kwargs={
+            "popsize": len(binning_tuples[0]) * 15,
+            "maxiter": 100,
+            "tol": 0.01,
+            "strategy": "rand1bin", # "best1bin"
+        },
         n_sampler_points_per_bin=1,
         inherit_best_init_point_within_bin=False,
         # accept_target_below=-np.inf, 

@@ -28,7 +28,8 @@ class BinMinBottomUp(BinMinBase):
                  optimizer="minimize", optimizer_kwargs={},
                  sampled_parameters=None, 
                  set_eval_points=None, set_eval_points_on_rank_0=True,
-                 initial_optimizer="minimize", n_initial_points=10, 
+                 initial_optimizer="minimize", n_initial_points=10,
+                 initial_optimizer_kwargs={}, 
                  n_sampler_points_per_bin=10,
                  inherit_best_init_point_within_bin=False,
                  accept_target_below=np.inf, accept_delta_target_below=np.inf,
@@ -47,6 +48,7 @@ class BinMinBottomUp(BinMinBase):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
+        n_workers = size - 1
 
         if size == 1:
             raise Exception(f"{self.print_prefix} The 'bottomup' task distribution needs more than one MPI process.")
@@ -81,6 +83,7 @@ class BinMinBottomUp(BinMinBase):
         self.set_eval_points_from_rank_0 = bool((self.set_eval_points is not None) and (self.set_eval_points_on_rank_0))
 
         self.initial_optimizer = initial_optimizer
+        self.initial_optimizer_kwargs = initial_optimizer_kwargs
         self.n_initial_points = n_initial_points
         self.n_sampler_points_per_bin = n_sampler_points_per_bin
         self.inherit_best_init_point_within_bin = inherit_best_init_point_within_bin
@@ -132,6 +135,20 @@ class BinMinBottomUp(BinMinBase):
         known_initial_optimizers = ["minimize", "differential_evolution"]
         if self.initial_optimizer not in known_initial_optimizers:
             raise Exception(f"Unknown initial optimizer '{self.initial_optimizer}'. The available optimizers for the initial stage are {known_initial_optimizers}.")
+
+        if self.optimizer_kwargs == {}:
+            self.optimizer_kwargs["tol"] = 1e-9
+            self.optimizer_kwargs["method"] = "L-BFGS-B"
+
+        if self.initial_optimizer_kwargs == {}:
+            if self.initial_optimizer == "minimize":
+                self.initial_optimizer_kwargs["tol"] = 1e-9
+                self.initial_optimizer_kwargs["method"] = "L-BFGS-B"
+            elif self.initial_optimizer == "differential_evolution":
+                self.initial_optimizer_kwargs["popsize"] = max(15*self.n_dims, n_workers)
+                self.initial_optimizer_kwargs["maxiter"] = 100
+                self.initial_optimizer_kwargs["tol"] = 0.01
+                self.initial_optimizer_kwargs["strategy"] = "best1bin" # "rand1bin"
 
         if "bounds" in self.optimizer_kwargs:
             if self.optimizer_kwargs["bounds"] is not None:
@@ -487,13 +504,13 @@ class BinMinBottomUp(BinMinBase):
                     _y_points_per_rank = []
                     _g_points_per_rank = []
 
-                    use_optimizer_kwargs = copy(self.optimizer_kwargs)
+                    use_initial_optimizer_kwargs = copy(self.use_initial_optimizer_kwargs)
                     try:
-                        res = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
+                        res = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_initial_optimizer_kwargs)
                     except ValueError as e:
                         warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
                         use_optimizer_kwargs["method"] = "trust-constr"
-                        res = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
+                        res = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_initial_optimizer_kwargs)
 
                     # The OptimizeResult.fun field should be the target function, so we create
                     # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
@@ -555,19 +572,25 @@ class BinMinBottomUp(BinMinBase):
                 # Only rank 0 gets a non-None executor
                 if rank == 0:
                     print(f"{self.print_prefix} rank {rank}: Running initial global optimization...", flush=True)
+
+                    use_initial_optimizer_kwargs = copy(self.initial_optimizer_kwargs)
+                    use_initial_optimizer_kwargs["updating"] = "deferred"
+                    use_initial_optimizer_kwargs["workers"] = executor.map
+
                     result = differential_evolution(
                         self._guide_function_wrapper,
                         bounds,
                         args=self.args,
-                        popsize=max(15*self.n_dims, n_workers),
-                        maxiter=100,
-                        tol=0.01,
-                        strategy="best1bin", # "rand1bin"
-                        updating="deferred",
-                        workers=executor.map
+                        **use_initial_optimizer_kwargs,
+                        # popsize=max(15*self.n_dims, n_workers),
+                        # maxiter=100,
+                        # tol=0.01,
+                        # strategy="best1bin", # "rand1bin"
+                        # updating="deferred",
+                        # workers=executor.map
                     )
 
-            print(f"{self.print_prefix} rank {rank}:  len(_x_points_per_rank) = {len(_x_points_per_rank)}", flush=True)
+            print(f"{self.print_prefix} rank {rank}: Evaluated {len(_x_points_per_rank)} points during the initial optimization.", flush=True)
 
             # Reset counter
             self._guide_function_wrapper_calls = 0
