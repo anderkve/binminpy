@@ -135,7 +135,7 @@ class BinMinBottomUp(BinMinBase):
         if self.initial_optimizer not in known_initial_optimizers:
             raise Exception(f"Unknown initial optimizer '{self.initial_optimizer}'. The available optimizers for the initial stage are {known_initial_optimizers}.")
 
-        if self.optimizer_kwargs == {}:
+        if (self.optimizer == "minimize") and (self.optimizer_kwargs == {}):
             self.optimizer_kwargs["tol"] = 1e-9
             self.optimizer_kwargs["method"] = "L-BFGS-B"
 
@@ -570,8 +570,8 @@ class BinMinBottomUp(BinMinBase):
             _y_points_per_rank = []
             _g_points_per_rank = []
 
-            # with MPICommExecutor(comm, root=0) as executor:
-            with MPICommExecutor(comm, root=0, use_dill=True) as executor:
+            with MPICommExecutor(comm, root=0) as executor:
+            # with MPICommExecutor(comm, root=0, use_dill=True) as executor:
 
                 # Only rank 0 gets a non-None executor
                 if rank == 0:
