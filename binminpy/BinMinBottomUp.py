@@ -10,7 +10,7 @@ import os
 import json
 from scipy.optimize import minimize, differential_evolution
 from scipy.optimize import OptimizeResult
-from scipy.stats.qmc import LatinHypercube
+from scipy.stats.qmc import LatinHypercube, Sobol
 
 from binminpy.BinMin import BinMinBase
 
@@ -128,7 +128,7 @@ class BinMinBottomUp(BinMinBase):
         self.n_sampled_dims = len(self.sampled_parameters)
         self.n_optimized_dims = len(self.optimized_parameters)
 
-        known_samplers = ["random", "latinhypercube", "bincenter"]
+        known_samplers = ["random", "latinhypercube", "sobol", "bincenter"]
         if self.sampler not in known_samplers:
             raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
 
@@ -149,7 +149,7 @@ class BinMinBottomUp(BinMinBase):
                 self.initial_optimizer_kwargs["tol"] = 1e-9
                 self.initial_optimizer_kwargs["method"] = "L-BFGS-B"
             elif self.initial_optimizer == "differential_evolution":
-                self.initial_optimizer_kwargs["popsize"] = max(15*self.n_dims, n_workers)
+                self.initial_optimizer_kwargs["popsize"] = max(15, n_workers)
                 self.initial_optimizer_kwargs["maxiter"] = 100
                 self.initial_optimizer_kwargs["tol"] = 0.01
                 self.initial_optimizer_kwargs["strategy"] = "best1bin" # "rand1bin"
@@ -201,8 +201,12 @@ class BinMinBottomUp(BinMinBase):
         if self.sampler == "random":
             sampled_points = x_lower_lims + np.random.random((n, self.n_dims)) * (x_upper_lims - x_lower_lims)
         elif self.sampler == "latinhypercube":
-            lh_sampler = LatinHypercube(d=self.n_dims)
-            sampled_points = x_lower_lims + lh_sampler.random(n=n) * (x_upper_lims - x_lower_lims)
+            sampler = LatinHypercube(d=self.n_dims)
+            sampled_points = x_lower_lims + sampler.random(n=n) * (x_upper_lims - x_lower_lims)
+        elif self.sampler == "sobol":
+            sampler = Sobol(d=self.n_dims, scramble=True, bits=30)
+            m = int(np.ceil(np.log2(n)))   # Find the smallest power m such that n <= 2^m
+            sampled_points = x_lower_lims + sampler.random_base2(m=m) * (x_upper_lims - x_lower_lims)
         elif self.sampler == "bincenter":
             bin_center = 0.5 * (x_lower_lims + x_upper_lims)
             sampled_points = np.array([bin_center])
@@ -294,6 +298,7 @@ class BinMinBottomUp(BinMinBase):
                 x[i] = fixed_pars[i]
             for j, i in enumerate(self.optimized_parameters):
                 x[i] = x_optimized_pars[j]
+
             return self._guide_function_wrapper(x, *args)
 
         final_res = None
@@ -303,6 +308,8 @@ class BinMinBottomUp(BinMinBase):
             for x0 in sampled_points:
                 
                 fixed_pars = {i: x0[i] for i in self.sampled_parameters}
+
+                # TODO: Add more clever suggestions for optimiziation init point
 
                 if self.inherit_best_init_point_within_bin:
                     x0_opt_init = current_best_opt_pars
@@ -318,7 +325,7 @@ class BinMinBottomUp(BinMinBase):
                         use_optimizer_kwargs["method"] = "trust-constr"
                         res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
                 elif self.optimizer == "differential_evolution":
-                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, x0=x0_opt_init, **use_optimizer_kwargs)
                 elif self.optimizer == "basinhopping":
                     from scipy.optimize import basinhopping
                     if not "minimizer_kwargs" in use_optimizer_kwargs:
@@ -591,12 +598,6 @@ class BinMinBottomUp(BinMinBase):
                         bounds,
                         args=self.args,
                         **use_initial_optimizer_kwargs,
-                        # popsize=max(15*self.n_dims, n_workers),
-                        # maxiter=100,
-                        # tol=0.01,
-                        # strategy="best1bin", # "rand1bin"
-                        # updating="deferred",
-                        # workers=executor.map
                     )
 
             print(f"{self.print_prefix} rank {rank}: Evaluated {len(_x_points_per_rank)} points during the initial optimization.", flush=True)
