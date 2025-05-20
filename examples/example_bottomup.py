@@ -85,6 +85,14 @@ if __name__ == "__main__":
         print_progress_every_n_batch=1,
         max_tasks_per_worker=np.inf,
         max_n_bins=np.inf,
+        # New parameters for managing task memory:
+        # max_tasks_in_memory: Limits the number of pending tasks held in memory by the master process.
+        #                       If the number of planned tasks exceeds this, tasks are dumped to task_dump_file.
+        max_tasks_in_memory=100,
+        # task_dump_file: Name of the file to dump tasks to if max_tasks_in_memory is exceeded.
+        #                 Tasks are loaded back from this file when the in-memory queue is empty.
+        #                 The file is deleted once all tasks from it are loaded and processed.
+        task_dump_file="example_task_dump.json",
     )
     result = binned_opt.run()
 
@@ -107,6 +115,11 @@ if __name__ == "__main__":
         print(f"Bins evaluated: {n_bins_evaluated} / {max_n_bins}")
         print()
         print(f"Target function calls: {result['n_target_calls']}")
+        print()
+        print("Note on task dumping: If 'task_dump_file' was specified (e.g., 'example_task_dump.json') "
+              "and the number of tasks exceeded 'max_tasks_in_memory', \n"
+              "tasks would have been temporarily written to that file. "
+              "If the run completed successfully and all tasks were processed, the dump file should now be deleted.")
         print()
 
 

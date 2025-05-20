@@ -6,6 +6,8 @@ import itertools
 from mpi4py import MPI
 import bisect
 from itertools import product
+import os
+import json
 from scipy.optimize import minimize, differential_evolution
 from scipy.optimize import OptimizeResult
 from scipy.stats.qmc import LatinHypercube
@@ -39,7 +41,8 @@ class BinMinBottomUp(BinMinBase):
                  neighborhood_distance=1,
                  n_optim_restarts_per_bin=1, n_tasks_per_batch=1, 
                  print_progress_every_n_batch=100,
-                 max_tasks_per_worker=np.inf, max_n_bins=np.inf):
+                 max_tasks_per_worker=np.inf, max_n_bins=np.inf,
+                 max_tasks_in_memory=np.inf, task_dump_file=None):
         """Constructor."""
 
         self.print_prefix = "BinMinBottomUp:"
@@ -110,6 +113,8 @@ class BinMinBottomUp(BinMinBase):
         self.print_progress_every_n_batch = print_progress_every_n_batch
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
+        self.max_tasks_in_memory = max_tasks_in_memory
+        self.task_dump_file = task_dump_file
 
         # Parameters that are not listed in sampled_parameters will be optimized
         all_parameters = tuple(range(self.n_dims))
@@ -784,6 +789,18 @@ class BinMinBottomUp(BinMinBase):
 
             print_counter = 0
             while completed_tasks < self.max_n_bins:
+                # Task Loading: At the beginning of the main loop if tasks is empty
+                if not tasks and self.task_dump_file and os.path.exists(self.task_dump_file):
+                    print(f"{self.print_prefix} rank {rank}: Loading tasks from {self.task_dump_file}", flush=True)
+                    try:
+                        with open(self.task_dump_file, 'r') as f:
+                            for line in f:
+                                tasks.append(tuple(json.loads(line)))
+                        os.remove(self.task_dump_file)
+                        print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks from {self.task_dump_file} and deleted file.", flush=True)
+                    except Exception as e:
+                        warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file}: {e}", RuntimeWarning)
+
                 print_counter += 1
 
                 status = MPI.Status()
@@ -847,15 +864,28 @@ class BinMinBottomUp(BinMinBase):
                         if nice_neighborhood:
                             new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, self.neighborhood_distance)
 
+                            # Task Dumping: Before adding new tasks
+                            if self.task_dump_file and (len(tasks) + len(new_bin_tuples)) > self.max_tasks_in_memory:
+                                if tasks: # Only dump if there are tasks to dump
+                                    print(f"{self.print_prefix} rank {rank}: Dumping {len(tasks)} tasks to {self.task_dump_file}", flush=True)
+                                    try:
+                                        with open(self.task_dump_file, 'a') as f:
+                                            for task_tuple in tasks:
+                                                f.write(json.dumps(task_tuple) + '\n')
+                                        tasks.clear()
+                                        print(f"{self.print_prefix} rank {rank}: Dumped tasks and cleared in-memory list.", flush=True)
+                                    except Exception as e:
+                                        warnings.warn(f"{self.print_prefix} rank {rank}: Error dumping tasks to {self.task_dump_file}: {e}", RuntimeWarning)
+                            
                             # TODO: Can implement an upper bound on the number of planned tasks here
-                            if len(tasks) < np.inf:
-                                for bin_index_tuple in new_bin_tuples:
+                            if len(tasks) < np.inf: # This condition might always be true if tasks are dumped
+                                for bin_index_tuple_to_add in new_bin_tuples:
                                     if len(planned_and_completed_tasks) >= self.max_n_bins:
                                         print(f"{self.print_prefix} rank {rank}: Will not plan more tasks due to the limit max_n_bins = {self.max_n_bins}", flush=True)
                                         break
-                                    if bin_index_tuple not in planned_and_completed_tasks:
-                                        planned_and_completed_tasks.add(bin_index_tuple)
-                                        tasks.append(bin_index_tuple)
+                                    if bin_index_tuple_to_add not in planned_and_completed_tasks:
+                                        planned_and_completed_tasks.add(bin_index_tuple_to_add)
+                                        tasks.append(bin_index_tuple_to_add)
 
                 # Now send out as many new tasks as possible
                 while tasks and available_workers:
@@ -864,16 +894,58 @@ class BinMinBottomUp(BinMinBase):
                     batch = tuple(tasks[0:use_batch_size])
                     eval_points_per_task = [None] * use_batch_size
                     if self.set_eval_points_from_rank_0:
-                        for i, bin_index_tuple in enumerate(batch):
-                            bounds = self.get_bin_limits(bin_index_tuple)
-                            eval_points_per_task[i] = self.set_eval_points(bin_index_tuple, bounds)
+                        for i, bin_index_tuple_in_batch in enumerate(batch):
+                            bounds = self.get_bin_limits(bin_index_tuple_in_batch)
+                            eval_points_per_task[i] = self.set_eval_points(bin_index_tuple_in_batch, bounds)
                     comm.send((batch, eval_points_per_task), dest=worker_rank, tag=TASK_TAG)
                     tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
                     ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
 
+                    # Task Loading: If tasks list becomes empty after sending a batch
+                    if not tasks and self.task_dump_file and os.path.exists(self.task_dump_file):
+                        print(f"{self.print_prefix} rank {rank}: Loading tasks from {self.task_dump_file} (mid-loop)", flush=True)
+                        try:
+                            with open(self.task_dump_file, 'r') as f:
+                                for line in f:
+                                    tasks.append(tuple(json.loads(line)))
+                            os.remove(self.task_dump_file)
+                            print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks from {self.task_dump_file} and deleted file (mid-loop).", flush=True)
+                        except Exception as e:
+                            warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file} (mid-loop): {e}", RuntimeWarning)
+
                 # No more work to do? Break out of while loop
                 if (not tasks) and (not ongoing_tasks):
-                    break
+                    # Final check for any tasks dumped to file before breaking
+                    if self.task_dump_file and os.path.exists(self.task_dump_file):
+                        print(f"{self.print_prefix} rank {rank}: Loading remaining tasks from {self.task_dump_file} before exiting main loop.", flush=True)
+                        try:
+                            with open(self.task_dump_file, 'r') as f:
+                                for line in f:
+                                    # Ensure not to add to planned_and_completed_tasks here as these are already processed once
+                                    tasks.append(tuple(json.loads(line)))
+                            os.remove(self.task_dump_file)
+                            print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks. Proceeding to send if any workers become available or exiting.", flush=True)
+                            # Attempt to send these loaded tasks if workers are available
+                            while tasks and available_workers:
+                                worker_rank = available_workers.pop(0)
+                                use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
+                                batch = tuple(tasks[0:use_batch_size])
+                                eval_points_per_task = [None] * use_batch_size
+                                if self.set_eval_points_from_rank_0:
+                                    for i, bin_index_tuple_in_batch in enumerate(batch):
+                                        bounds = self.get_bin_limits(bin_index_tuple_in_batch)
+                                        eval_points_per_task[i] = self.set_eval_points(bin_index_tuple_in_batch, bounds)
+                                comm.send((batch, eval_points_per_task), dest=worker_rank, tag=TASK_TAG)
+                                tasks = tasks[len(batch):]
+                                ongoing_tasks.extend(batch)
+                            if (not tasks) and (not ongoing_tasks): # If all loaded tasks are dispatched or no workers
+                                break
+                        except Exception as e:
+                            warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file} before exiting: {e}", RuntimeWarning)
+                            break # Break if error during final load
+                    else: # No dump file, truly no more tasks
+                        break
+
 
             # Done with the given number of tasks, so stop all workers
             for worker_rank in range(1, n_workers+1):
