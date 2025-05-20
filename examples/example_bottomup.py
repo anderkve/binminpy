@@ -10,12 +10,17 @@ size = comm.Get_size()
 
 def target_function(x, *args):
     # """A 2D Himmelblau function in (x0,x1) with x2 representing a shift of x1"""
-    func = (x[0]**2 + x[1] + x[2] - 11.)**2 + (x[0] + (x[1] + x[2])**2 - 7.)**2
+    func = ((x[0] + x[3])**2 + x[1] + x[2] - 11.)**2 + ((x[0] + x[3]) + (x[1] + x[2])**2 - 7.)**2
+
+    # # """A 2D Himmelblau function in (x0,x1) with x2 representing a shift of x1"""
+    # func = (x[0]**2 + x[1] + x[2] - 11.)**2 + (x[0] + (x[1] + x[2])**2 - 7.)**2
+    # # """A 2D Himmelblau function in (x0,x1)"""
+    # func = (x[0]**2 + x[1] - 11.)**2 + (x[0] + x[1]**2 - 7.)**2
     return func
 
 
 def bin_check_function(bin_result, x_points, y_points):
-    bin_accepted = bool(bin_result.fun < 30.0)
+    bin_accepted = bool(bin_result.fun < 35.0)
     return bin_accepted
 
 
@@ -36,7 +41,12 @@ def set_eval_points(bin_index_tuple, bounds):
 
 if __name__ == "__main__":
 
-    binning_tuples = [[-6, 6, 120], [-6, 6, 120], [-0.5, 0.5, 2]]
+    # binning_tuples = [[-6, 6, 10], [-6, 6, 10]]
+    # binning_tuples = [[-6, 6, 50], [-6, 6, 50], [-2.0, 2.0, 3]]
+    binning_tuples = [[-6, 6, 80], [-6, 6, 80], [-1.0, 1.0, 1], [-1.0, 1.0, 1]]
+    # binning_tuples = [[-6, 6, 60], [-6, 6, 60], [-0.5, 0.5, 10]]
+    # binning_tuples = [[-6, 6, 10], [-6, 6, 10], [-6, 6, 10], [-0.5, 0.5, 2]]
+    # binning_tuples = [[-6, 6, 10], [-6, 6, 10], [-6, 6, 10], [-6, 6, 10], [-0.5, 0.5, 2]]
 
     binned_opt = BinMinBottomUp(
         target_function,
@@ -46,12 +56,32 @@ if __name__ == "__main__":
         bin_check_function=bin_check_function,
         # callback=callback,
         # callback_on_rank_0=True,
-        sampler="latinhypercube",
-        optimizer="minimize",
+        # sampler="latinhypercube",
+        sampler="sobol",
+        # optimizer="iminuit",
+        # optimizer_kwargs={
+        #     "tol": 1e-9,
+        #     "method": "migrad",
+        # },
+        optimizer="differential_evolution",
         optimizer_kwargs={
-            "tol": 1e-9,
-            "method": "L-BFGS-B",
+            "popsize": 4,  # 4 * n_dim = 16 = 2^4 --> funker med sobol
+            "maxiter": 10,
+            "tol": 0.01,
+            "strategy": "best1bin", # "best1bin"
+            "polish": False,
+            "init": "sobol",
+            # "init": "halton",
+            # "init": "latinhypercube",
         },
+        # optimizer="minimize",
+        # optimizer_kwargs={
+        #     "tol": 1e-9,
+        #     "method": "L-BFGS-B",
+        #     # "tol": 1e-9,
+        #     # "method": "SLSQP",
+        # },
+        # sampled_parameters=(0,1,2,3),
         sampled_parameters=(),
         # set_eval_points=set_eval_points,
         # set_eval_points_on_rank_0=True,
@@ -63,10 +93,11 @@ if __name__ == "__main__":
         # },
         initial_optimizer="differential_evolution",
         initial_optimizer_kwargs={
-            "popsize": len(binning_tuples[0]) * 15,
-            "maxiter": 100,
-            "tol": 0.01,
-            "strategy": "rand1bin", # "best1bin"
+            "popsize": 15,
+            "maxiter": 10,
+            "tol": 1.0e-9, # 0.01,            
+            "strategy": "best1bin", # "best1bin"
+            "polish": False,
         },
         n_sampler_points_per_bin=1,
         inherit_best_init_point_within_bin=False,
@@ -74,14 +105,14 @@ if __name__ == "__main__":
         # accept_delta_target_below=0.0,
         # accept_guide_below=-np.inf, 
         # accept_delta_guide_below=4.0,
-        save_evals=False,
+        save_evals=True,
         return_evals=False,
         return_bin_centers=True,
         optima_comparison_rtol=1e-6,
         optima_comparison_atol=1e-4,
         neighborhood_distance=1,
         n_optim_restarts_per_bin=1,
-        n_tasks_per_batch=10,
+        n_tasks_per_batch=1,
         print_progress_every_n_batch=1,
         max_tasks_per_worker=np.inf,
         max_n_bins=np.inf,
