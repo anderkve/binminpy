@@ -16,10 +16,10 @@ if size < 2:
     comm.Abort(1)
 
 # Test-specific configurations
-TASK_DUMP_FILE = "test_dump_file_case2.json" # A name is provided
+TASK_DUMP_FILE = "test_dump_file_case2.json" 
 MAX_TASKS_IN_MEMORY = float('inf') # Large enough to NOT trigger dumping
 N_INITIAL_POINTS = 1
-MAX_N_BINS = 5 
+MAX_N_BINS = np.inf 
 ACCEPT_TARGET_BELOW = 0.1
 
 # Simple target function
@@ -46,6 +46,13 @@ def run_test_dumping_not_triggered():
         simple_target_function,
         binning_tuples,
         guide_function=simple_guide_function,
+        sampler="latinhypercube",
+        optimizer="minimize",
+        optimizer_kwargs={
+            "tol": 1e-9,
+            "method": "L-BFGS-B",
+        },
+        sampled_parameters=(0),
         n_initial_points=N_INITIAL_POINTS,
         max_tasks_in_memory=MAX_TASKS_IN_MEMORY, # Key: set to not dump
         task_dump_file=TASK_DUMP_FILE,          # Key: file name provided
@@ -54,8 +61,8 @@ def run_test_dumping_not_triggered():
         neighborhood_distance=1,
         n_sampler_points_per_bin=1,
         print_progress_every_n_batch=1,
-        initial_optimizer_kwargs={"tol": 1e-3},
-        optimizer_kwargs={"tol": 1e-3}
+        # initial_optimizer_kwargs={"tol": 1e-3},
+        # optimizer_kwargs={"tol": 1e-3}
     )
     
     result = None

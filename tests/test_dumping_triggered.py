@@ -20,7 +20,7 @@ if size < 2:
 TASK_DUMP_FILE = "test_dump_file_case1.json"
 MAX_TASKS_IN_MEMORY = 1 # Small enough to trigger dumping
 N_INITIAL_POINTS = 1
-MAX_N_BINS = 5 # Explore a few bins
+MAX_N_BINS = 5 
 ACCEPT_TARGET_BELOW = 0.1 # To ensure neighborhoods are explored
 
 # Simple target function

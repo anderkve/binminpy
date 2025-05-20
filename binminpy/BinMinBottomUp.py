@@ -27,7 +27,7 @@ class BinMinBottomUp(BinMinBase):
                  callback=None, callback_on_rank_0=True,
                  sampler="latinhypercube", 
                  optimizer="minimize", optimizer_kwargs={},
-                 sampled_parameters=None, 
+                 sampled_parameters=(), 
                  set_eval_points=None, set_eval_points_on_rank_0=True,
                  initial_optimizer="minimize", n_initial_points=10,
                  initial_optimizer_kwargs={}, 
@@ -513,7 +513,7 @@ class BinMinBottomUp(BinMinBase):
                     _y_points_per_rank = []
                     _g_points_per_rank = []
 
-                    use_initial_optimizer_kwargs = copy(self.use_initial_optimizer_kwargs)
+                    use_initial_optimizer_kwargs = copy(self.initial_optimizer_kwargs)
                     try:
                         res = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_initial_optimizer_kwargs)
                     except ValueError as e:
@@ -692,8 +692,8 @@ class BinMinBottomUp(BinMinBase):
             # print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins:\n{planned_and_completed_tasks}", flush=True)
             print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins.", flush=True)
 
-
             if len(tasks) == 0:
+                comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
 
             # Now we want to add more tasks by collecting neighbors 
@@ -888,6 +888,7 @@ class BinMinBottomUp(BinMinBase):
                                         tasks.append(bin_index_tuple_to_add)
 
                 # Now send out as many new tasks as possible
+                # TODO: Move this to a function?
                 while tasks and available_workers:
                     worker_rank = available_workers.pop(0)
                     use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
@@ -901,7 +902,7 @@ class BinMinBottomUp(BinMinBase):
                     tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
                     ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
 
-                    # Task Loading: If tasks list becomes empty after sending a batch
+                    # Task loading: If tasks list becomes empty after sending a batch
                     if not tasks and self.task_dump_file and os.path.exists(self.task_dump_file):
                         print(f"{self.print_prefix} rank {rank}: Loading tasks from {self.task_dump_file} (mid-loop)", flush=True)
                         try:
@@ -913,6 +914,7 @@ class BinMinBottomUp(BinMinBase):
                         except Exception as e:
                             warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file} (mid-loop): {e}", RuntimeWarning)
 
+
                 # No more work to do? Break out of while loop
                 if (not tasks) and (not ongoing_tasks):
                     # Final check for any tasks dumped to file before breaking
@@ -921,11 +923,11 @@ class BinMinBottomUp(BinMinBase):
                         try:
                             with open(self.task_dump_file, 'r') as f:
                                 for line in f:
-                                    # Ensure not to add to planned_and_completed_tasks here as these are already processed once
                                     tasks.append(tuple(json.loads(line)))
                             os.remove(self.task_dump_file)
                             print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks. Proceeding to send if any workers become available or exiting.", flush=True)
                             # Attempt to send these loaded tasks if workers are available
+                            # TODO: Move this to a function?
                             while tasks and available_workers:
                                 worker_rank = available_workers.pop(0)
                                 use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))

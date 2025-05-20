@@ -116,11 +116,6 @@ if __name__ == "__main__":
         print()
         print(f"Target function calls: {result['n_target_calls']}")
         print()
-        print("Note on task dumping: If 'task_dump_file' was specified (e.g., 'example_task_dump.json') "
-              "and the number of tasks exceeded 'max_tasks_in_memory', \n"
-              "tasks would have been temporarily written to that file. "
-              "If the run completed successfully and all tasks were processed, the dump file should now be deleted.")
-        print()
 
 
     #
