@@ -53,7 +53,7 @@ class BinMinBottomUp(BinMinBase):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
-        n_workers = size - 1
+        self.n_workers = size - 1
 
         if size == 1:
             raise Exception(f"{self.print_prefix} The 'bottomup' task distribution needs more than one MPI process.")
@@ -174,6 +174,7 @@ class BinMinBottomUp(BinMinBase):
         # Counter used for internal bookkeeping
         self._guide_function_wrapper_calls = 0
 
+
     @staticmethod
     def generate_offsets(dim, distance):
         # Generate all possible combinations for the given dimension.
@@ -183,6 +184,7 @@ class BinMinBottomUp(BinMinBase):
                 continue
             if sum(abs(x) for x in offset) == distance:
                 yield offset
+
 
     @staticmethod
     def collect_n_neighbor_bins(input_bin, num_bins, n_dims, n_bins_per_dim_tuple):
@@ -203,6 +205,7 @@ class BinMinBottomUp(BinMinBase):
             distance += 1
         return new_bins
 
+
     @staticmethod
     def collect_neighbor_bins_within_dist(input_bin, distance, n_dims, n_bins_per_dim_tuple):
         new_bins = []
@@ -215,6 +218,7 @@ class BinMinBottomUp(BinMinBase):
             candidate = tuple(candidate.tolist())
             new_bins.append(candidate)
         return new_bins
+
 
     def _default_guide_function(self, x, y, *args):
         """Default guide function for the optimizer"""
@@ -470,7 +474,6 @@ class BinMinBottomUp(BinMinBase):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
-        n_workers = size - 1
 
         # Wait here until all processes are ready.
         comm.Barrier()
@@ -504,7 +507,7 @@ class BinMinBottomUp(BinMinBase):
 
                 # Send out optimization tasks
                 for i, x0 in enumerate(x0_points):
-                    worker_rank = (i % n_workers) + 1
+                    worker_rank = (i % self.n_workers) + 1
                     x0 = x0_points[i]
                     opt_task_tuple = (x0, bounds)
                     comm.send(opt_task_tuple, dest=worker_rank, tag=BinMinBottomUp.TASK_TAG)
@@ -533,7 +536,7 @@ class BinMinBottomUp(BinMinBase):
                     initial_opt_results.append((opt_result.x, opt_result.fun, opt_result.guide_fun))
 
                 # Done with the initial optimizations, so stop all workers
-                for worker_rank_terminate in range(1, n_workers+1): # Renamed to avoid conflict
+                for worker_rank_terminate in range(1, self.n_workers+1):
                     # print(f"{self.print_prefix} rank {rank}: Telling rank {worker_rank_terminate} we are done with the initial optimization.", flush=True)
                     comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
 
@@ -719,7 +722,7 @@ class BinMinBottomUp(BinMinBase):
             # print(f"{self.print_prefix} rank {rank}: Growing bins from {len(initial_opt_tuples)} points.", flush=True)
             completed_tasks = 0
             ongoing_tasks = []
-            available_workers = list(range(1, n_workers+1)) 
+            available_workers = list(range(1, self.n_workers+1)) 
             tasks = []
             planned_and_completed_tasks = set()
 
@@ -732,17 +735,15 @@ class BinMinBottomUp(BinMinBase):
             print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins.", flush=True)
 
             if len(tasks) == 0:
-                # worker_rank might not be defined if initial_opt_results is empty and n_initial_points is 0.
-                # This was an issue in original code too. For now, assume worker_rank is usually defined.
-                # A robust fix would be to send TERMINATE_TAG to all workers if tasks list is empty.
-                comm.send(None, dest=worker_rank, tag=BinMinBottomUp.TERMINATE_TAG)
+                for worker_rank_terminate in range(1, self.n_workers+1):
+                    comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
 
             # Now we want to add more tasks by collecting neighbors
 
             # Collect some more initial tasks around the current best-fit
-            if len(tasks) < n_workers:
-                new_bin_tuples = BinMinBottomUp.collect_n_neighbor_bins(initial_opt_tuples[0][1], n_workers - len(tasks), self.n_dims, self.n_bins_per_dim)
+            if len(tasks) < self.n_workers:
+                new_bin_tuples = BinMinBottomUp.collect_n_neighbor_bins(initial_opt_tuples[0][1], self.n_workers - len(tasks), self.n_dims, self.n_bins_per_dim)
                 for new_bin_index_tuple in new_bin_tuples:
                     if new_bin_index_tuple not in planned_and_completed_tasks:
                         planned_and_completed_tasks.add(new_bin_index_tuple)
@@ -752,14 +753,7 @@ class BinMinBottomUp(BinMinBase):
             # Send out initial batches of tasks
             while tasks and available_workers:
                 worker_rank = available_workers.pop(0)
-                use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
-                batch = tuple(tasks[0:use_batch_size])
-                eval_points_per_task = [None] * use_batch_size
-                if self.set_eval_points_from_rank_0:
-                    for i_batch_item, bin_index_tuple_item in enumerate(batch): # Renamed loop variable
-                        bounds = self.get_bin_limits(bin_index_tuple_item)
-                        eval_points_per_task[i_batch_item] = self.set_eval_points(bin_index_tuple_item, bounds)
-                self._send_task_batch_to_worker(comm, worker_rank, batch, eval_points_per_task)
+                batch = self._send_task_batch_to_worker(comm, worker_rank, tasks)
                 tasks = tasks[len(batch):]
                 ongoing_tasks.extend(batch)
 
@@ -884,17 +878,9 @@ class BinMinBottomUp(BinMinBase):
                                         tasks.append(bin_index_tuple_to_add)
 
                 # Now send out as many new tasks as possible
-                # TODO: Move this to a function?
                 while tasks and available_workers:
                     worker_rank = available_workers.pop(0)
-                    use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
-                    batch = tuple(tasks[0:use_batch_size])
-                    eval_points_per_task = [None] * use_batch_size
-                    if self.set_eval_points_from_rank_0:
-                        for i_batch_item, bin_index_tuple_item in enumerate(batch): # Renamed loop variable
-                            bounds = self.get_bin_limits(bin_index_tuple_item)
-                            eval_points_per_task[i_batch_item] = self.set_eval_points(bin_index_tuple_item, bounds)
-                    self._send_task_batch_to_worker(comm, worker_rank, batch, eval_points_per_task)
+                    batch = self._send_task_batch_to_worker(comm, worker_rank, tasks)
                     tasks = tasks[len(batch):]
                     ongoing_tasks.extend(batch)
 
@@ -923,19 +909,12 @@ class BinMinBottomUp(BinMinBase):
                             os.remove(self.task_dump_file)
                             print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks. Proceeding to send if any workers become available or exiting.", flush=True)
                             # Attempt to send these loaded tasks if workers are available
-                            # TODO: Move this to a function?
                             while tasks and available_workers:
                                 worker_rank = available_workers.pop(0)
-                                use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
-                                batch = tuple(tasks[0:use_batch_size])
-                                eval_points_per_task = [None] * use_batch_size
-                                if self.set_eval_points_from_rank_0:
-                                    for i_batch_item, bin_index_tuple_item in enumerate(batch): # Renamed loop variable
-                                        bounds = self.get_bin_limits(bin_index_tuple_item)
-                                        eval_points_per_task[i_batch_item] = self.set_eval_points(bin_index_tuple_item, bounds)
-                                self._send_task_batch_to_worker(comm, worker_rank, batch, eval_points_per_task)
+                                batch = self._send_task_batch_to_worker(comm, worker_rank, tasks)
                                 tasks = tasks[len(batch):]
                                 ongoing_tasks.extend(batch)
+
                             if (not tasks) and (not ongoing_tasks): # If all loaded tasks are dispatched or no workers
                                 break
                         except Exception as e:
@@ -946,7 +925,7 @@ class BinMinBottomUp(BinMinBase):
 
 
             # Done with the given number of tasks, so stop all workers
-            for worker_rank_terminate in range(1, n_workers+1): # Renamed to avoid conflict
+            for worker_rank_terminate in range(1, self.n_workers+1):
                 # print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank_terminate}", flush=True)
                 comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
 
@@ -981,18 +960,28 @@ class BinMinBottomUp(BinMinBase):
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
+        # All worker processes go directly to _worker_main_loop
         else:
             output = self._worker_main_loop(comm, rank, callback_from_rank_0)
 
-
-        # All together now
+        # Wait for everyone before returning
         # print(f"{self.print_prefix} rank {rank}: Waiting at the final barrier", flush=True)
         comm.Barrier()
         return output
 
-    def _send_task_batch_to_worker(self, comm, worker_rank, batch_tasks, eval_points_per_task):
+
+    def _send_task_batch_to_worker(self, comm, worker_rank, tasks):
         """Sends a batch of tasks to a specified worker."""
-        comm.send((batch_tasks, eval_points_per_task), dest=worker_rank, tag=BinMinBottomUp.TASK_TAG)
+        use_batch_size = max(1, min(int(np.round(len(tasks) / self.n_workers)), self.n_tasks_per_batch))
+        batch = tuple(tasks[0:use_batch_size])
+        eval_points_per_task = [None] * use_batch_size
+        if self.set_eval_points_from_rank_0:
+            for i_batch_item, bin_index_tuple_item in enumerate(batch):
+                bounds = self.get_bin_limits(bin_index_tuple_item)
+                eval_points_per_task[i_batch_item] = self.set_eval_points(bin_index_tuple_item, bounds)
+        comm.send((batch, eval_points_per_task), dest=worker_rank, tag=BinMinBottomUp.TASK_TAG)
+        return batch
+
 
     def _worker_main_loop(self, comm, rank, callback_from_rank_0):
         """Main loop for worker processes."""

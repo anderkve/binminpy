@@ -119,7 +119,7 @@ if __name__ == "__main__":
         # New parameters for managing task memory:
         # max_tasks_in_memory: Limits the number of pending tasks held in memory by the master process.
         #                       If the number of planned tasks exceeds this, tasks are dumped to task_dump_file.
-        max_tasks_in_memory=100,
+        max_tasks_in_memory=10000,
         # task_dump_file: Name of the file to dump tasks to if max_tasks_in_memory is exceeded.
         #                 Tasks are loaded back from this file when the in-memory queue is empty.
         #                 The file is deleted once all tasks from it are loaded and processed.
