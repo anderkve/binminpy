@@ -124,6 +124,8 @@ if __name__ == "__main__":
         #                 Tasks are loaded back from this file when the in-memory queue is empty.
         #                 The file is deleted once all tasks from it are loaded and processed.
         task_dump_file="example_task_dump.json",
+        # skip_initial_optimization=True,
+        # initial_points=[(16,66,0,0)],
     )
     result = binned_opt.run()
 
