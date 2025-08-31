@@ -285,6 +285,11 @@ class BinMinProfiler:
     def _call_likelihood(self, params):
         """Just calls the likelihood and counts."""
         logL = self.likelihood_func(params)
+        # _Anders
+        # d = 0.0
+        # for i in range(20000):
+        #     d += 0.1
+
         self.likelihood_calls += 1
         return logL
 
@@ -1327,9 +1332,9 @@ if __name__ == '__main__':
     OUTPUT_FILE = "samples.csv"
 
     PROJECTIONS_TO_RUN = [
-        {'dims': [0, 1], 'grid_points': [100, 100], 'patching': True, 'refining': True},
+        # {'dims': [0, 1], 'grid_points': [200, 200], 'patching': True, 'refining': True},
         # {'dims': [0, 2], 'grid_points': [100, 100], 'patching': True, 'refining': True},
-        # {'dims': [0, 3], 'grid_points': [100, 100], 'patching': True, 'refining': True},
+        {'dims': [0, 3], 'grid_points': [100, 100], 'patching': True, 'refining': True},
         # {'dims': [1, 2], 'grid_points': [100, 100], 'patching': True, 'refining': True},
         # {'dims': [1, 3], 'grid_points': [100, 100], 'patching': True, 'refining': True},
         # {'dims': [2, 3], 'grid_points': [100, 100], 'patching': True, 'refining': True},
