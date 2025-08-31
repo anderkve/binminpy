@@ -6,22 +6,35 @@ import itertools
 from mpi4py import MPI
 import bisect
 from itertools import product
+import os
+import json
 from scipy.optimize import minimize, differential_evolution
 from scipy.optimize import OptimizeResult
-from scipy.stats.qmc import LatinHypercube
+from scipy.stats.qmc import LatinHypercube, Sobol
 
 from binminpy.BinMin import BinMinBase
 
+# Module level containers (due to pickling)
+_x_points_per_rank = []
+_y_points_per_rank = []
+_g_points_per_rank = []
+
+
 class BinMinBottomUp(BinMinBase):
+    TASK_TAG = 1
+    RESULT_TAG = 2
+    TERMINATE_TAG = 3
 
     def __init__(self, target_function, binning_tuples, args=(), 
                  guide_function=None, bin_check_function=None, 
                  callback=None, callback_on_rank_0=True,
                  sampler="latinhypercube", 
                  optimizer="minimize", optimizer_kwargs={},
-                 sampled_parameters=None, 
+                 sampled_parameters=(), 
                  set_eval_points=None, set_eval_points_on_rank_0=True,
-                 n_initial_points=10, n_sampler_points_per_bin=10,
+                 initial_optimizer="minimize", n_initial_points=10,
+                 initial_optimizer_kwargs={}, 
+                 n_sampler_points_per_bin=10,
                  inherit_best_init_point_within_bin=False,
                  accept_target_below=np.inf, accept_delta_target_below=np.inf,
                  accept_guide_below=np.inf, accept_delta_guide_below=np.inf,
@@ -31,7 +44,10 @@ class BinMinBottomUp(BinMinBase):
                  neighborhood_distance=1,
                  n_optim_restarts_per_bin=1, n_tasks_per_batch=1, 
                  print_progress_every_n_batch=100,
-                 max_tasks_per_worker=np.inf, max_n_bins=np.inf):
+                 max_tasks_per_worker=np.inf, max_n_bins=np.inf,
+                 max_tasks_in_memory=np.inf, task_dump_file=None,
+                 skip_initial_optimization=False, initial_points=None,
+                 ):
         """Constructor."""
 
         self.print_prefix = "BinMinBottomUp:"
@@ -39,6 +55,7 @@ class BinMinBottomUp(BinMinBase):
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
+        self.n_workers = size - 1
 
         if size == 1:
             raise Exception(f"{self.print_prefix} The 'bottomup' task distribution needs more than one MPI process.")
@@ -72,6 +89,8 @@ class BinMinBottomUp(BinMinBase):
         self.set_eval_points_from_worker = bool((self.set_eval_points is not None) and (not self.set_eval_points_on_rank_0))
         self.set_eval_points_from_rank_0 = bool((self.set_eval_points is not None) and (self.set_eval_points_on_rank_0))
 
+        self.initial_optimizer = initial_optimizer
+        self.initial_optimizer_kwargs = initial_optimizer_kwargs
         self.n_initial_points = n_initial_points
         self.n_sampler_points_per_bin = n_sampler_points_per_bin
         self.inherit_best_init_point_within_bin = inherit_best_init_point_within_bin
@@ -99,6 +118,14 @@ class BinMinBottomUp(BinMinBase):
         self.print_progress_every_n_batch = print_progress_every_n_batch
         self.max_tasks_per_worker = max_tasks_per_worker
         self.max_n_bins = max_n_bins
+        self.max_tasks_in_memory = max_tasks_in_memory
+        self.skip_initial_optimization = skip_initial_optimization
+        self.initial_points = initial_points
+        self.task_dump_file = task_dump_file
+
+        if self.skip_initial_optimization and (not self.initial_points):
+            raise Exception("'initial_points' must be provided when 'skip_initial_optimization' is True.")
+
 
         # Parameters that are not listed in sampled_parameters will be optimized
         all_parameters = tuple(range(self.n_dims))
@@ -112,7 +139,7 @@ class BinMinBottomUp(BinMinBase):
         self.n_sampled_dims = len(self.sampled_parameters)
         self.n_optimized_dims = len(self.optimized_parameters)
 
-        known_samplers = ["random", "latinhypercube", "bincenter"]
+        known_samplers = ["random", "latinhypercube", "sobol", "bincenter"]
         if self.sampler not in known_samplers:
             raise Exception(f"Unknown sampler '{self.sampler}'. The known samplers are {known_samplers}.")
 
@@ -120,19 +147,357 @@ class BinMinBottomUp(BinMinBase):
         if self.optimizer not in known_optimizers:
             raise Exception(f"Unknown optimizer '{self.optimizer}'. The known optimizers are {known_optimizers}.")
 
+        known_initial_optimizers = ["minimize", "differential_evolution"]
+        if self.initial_optimizer not in known_initial_optimizers:
+            raise Exception(f"Unknown initial optimizer '{self.initial_optimizer}'. The available optimizers for the initial stage are {known_initial_optimizers}.")
+
+        if (self.optimizer == "minimize") and (self.optimizer_kwargs == {}):
+            self.optimizer_kwargs["tol"] = 1e-9
+            self.optimizer_kwargs["method"] = "L-BFGS-B"
+
+        if self.initial_optimizer_kwargs == {}:
+            if self.initial_optimizer == "minimize":
+                self.initial_optimizer_kwargs["tol"] = 1e-9
+                self.initial_optimizer_kwargs["method"] = "L-BFGS-B"
+            elif self.initial_optimizer == "differential_evolution":
+                self.initial_optimizer_kwargs["popsize"] = max(15, n_workers)
+                self.initial_optimizer_kwargs["maxiter"] = 100
+                self.initial_optimizer_kwargs["tol"] = 0.01
+                self.initial_optimizer_kwargs["strategy"] = "best1bin" # "rand1bin"
+
         if "bounds" in self.optimizer_kwargs:
             if self.optimizer_kwargs["bounds"] is not None:
                 warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'optimizer_kwargs' dictionary will be overridden.")
             del(self.optimizer_kwargs["bounds"])
 
+        if "bounds" in self.initial_optimizer_kwargs:
+            if self.initial_optimizer_kwargs["bounds"] is not None:
+                warnings.warn(f"self.{print_prefix} The 'bounds' entry provided via the 'initial_optimizer_kwargs' dictionary will be overridden.")
+            del(self.initial_optimizer_kwargs["bounds"])
+
         if "args" in optimizer_kwargs.keys():
             warnings.warn("The 'args' argument provided to BinMinBottomUp overrides the 'args' entry in the 'optimizer_kwargs' dictionary.")
             optimizer_kwargs["args"] = args
+
+        # Counter used for internal bookkeeping
+        self._guide_function_wrapper_calls = 0
+
+
+    def _perform_initial_optimization(self, comm, rank, n_workers):
+        """Performs the initial optimization step."""
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
+
+        # Initialization
+        n_target_calls_total = 0
+        x_evals_list = []
+        y_evals_list = []
+        initial_opt_results = []
+
+        # Limits for the full input space
+        x_lower_lims = np.array([bt[0] for bt in self.binning_tuples])
+        x_upper_lims = np.array([bt[1] for bt in self.binning_tuples])
+
+        if self.initial_optimizer == "minimize":
+            # Rank 0 logic for initial optimizier "minimize"
+            if rank == 0:
+                lh_sampler = LatinHypercube(d=self.n_dims)
+                x0_points = list(x_lower_lims + lh_sampler.random(n=self.n_initial_points) * (x_upper_lims - x_lower_lims))
+
+                # Use the full input space during the initial optimization
+                bounds = [(bt[0], bt[1]) for bt in self.binning_tuples]
+
+                # Send out optimization tasks
+                for i, x0_task in enumerate(x0_points):
+                    worker_rank = (i % n_workers) + 1
+                    opt_task_tuple = (x0_task, bounds)
+                    comm.send(opt_task_tuple, dest=worker_rank, tag=BinMinBottomUp.TASK_TAG)
+
+                # Listen for and collect results
+                collected_results_count = 0
+                while collected_results_count < self.n_initial_points:
+                    status = MPI.Status()
+                    # Block until any worker returns a result.
+                    result_data = comm.recv(source=MPI.ANY_SOURCE, tag=BinMinBottomUp.RESULT_TAG, status=status)
+                    worker_rank = status.Get_source()
+
+                    if result_data is None:
+                        # TODO: Should output x0 of the failed optimization
+                        raise Exception(f"{self.print_prefix} Initial optimization failed for rank {worker_rank}.")
+
+                    opt_result_tuple, n_target_calls, x_points, y_points, received_x0 = result_data
+                    print(f"{self.print_prefix} rank {rank}: Initial optimization result from rank {worker_rank}, starting from x0 = {received_x0}  -->  x = {opt_result_tuple[0]}, y = {opt_result_tuple[1]}, guide = {opt_result_tuple[2]}", flush=True)
+
+                    n_target_calls_total += n_target_calls
+                    if self.return_evals or self.save_evals:
+                        x_evals_list.extend(x_points)
+                        y_evals_list.extend(y_points)
+
+                    # Save optimization result
+                    initial_opt_results.append((opt_result_tuple[0], opt_result_tuple[1], opt_result_tuple[2]))
+                    collected_results_count +=1
+
+                # Done with the initial optimizations, so stop all workers
+                for worker_rank_terminate in range(1, n_workers + 1):
+                    comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
+            else:
+                # Worker logic for initial optimizier "minimize"
+                while True:
+                    status = MPI.Status()
+                    # Wait here for a new message
+                    data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
+                    tag = status.Get_tag()
+
+                    # Terminate?
+                    if tag == BinMinBottomUp.TERMINATE_TAG or data is None:
+                        break
+
+                    # Worker process: receive optimization task, perform it
+                    x0, bounds = data
+
+                    _x_points_per_rank = []
+                    _y_points_per_rank = []
+                    _g_points_per_rank = []
+                    self._guide_function_wrapper_calls = 0   # Reset counter for this task
+
+                    use_initial_optimizer_kwargs = copy(self.initial_optimizer_kwargs)
+                    try:
+                        res_opt = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_initial_optimizer_kwargs)
+                    except ValueError as e:
+                        warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
+                        use_initial_optimizer_kwargs["method"] = "trust-constr"
+                        res_opt = minimize(self._guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_initial_optimizer_kwargs)
+
+                    # Handle case where no points were evaluated
+                    if not _g_points_per_rank:  
+                        # Sending None back to rank 0 to indicate failure for this task
+                        comm.send(None, dest=0, tag=BinMinBottomUp.RESULT_TAG)
+                        continue # Skip to next message
+
+                    # Identify the best point according to guide function
+                    opt_index = np.argmin(_g_points_per_rank)
+                    selected_x = copy(_x_points_per_rank[opt_index])
+                    selected_fun = copy(_y_points_per_rank[opt_index])
+                    selected_guide_fun = copy(_g_points_per_rank[opt_index])
+                    
+                    # Prepare points for return
+                    x_points_for_return = []
+                    y_points_for_return = []
+                    if self.return_evals or self.save_evals:
+                        x_points_for_return = copy(_x_points_per_rank)
+                        y_points_for_return = copy(_y_points_per_rank)
+
+                    # Construct return_tuple
+                    opt_result_tuple_to_send = (selected_x, selected_fun, selected_guide_fun)
+                    return_tuple = (opt_result_tuple_to_send, self._guide_function_wrapper_calls, x_points_for_return, y_points_for_return, x0)
+
+                    if self.save_evals:
+                        import h5py
+                        hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
+                        hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
+                        with h5py.File(hdf5_filename, 'a') as f:
+                            for dset_name in enumerate(hdf5_dset_names):
+                                # If dataset does not exist in file, create it
+                                if dset_name not in f:  
+                                    f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
+                                
+                                # Use _x_points_per_rank and _y_points_per_rank for saving
+                                new_data = np.array([])
+                                if dset_name.startswith("x"):
+                                    x_index = int(dset_name[1:])
+                                    new_data = np.array(_x_points_per_rank)[:,x_index]
+                                elif dset_name == "y":
+                                    new_data = np.array(_y_points_per_rank)
+
+                                if new_data.size > 0:  # Only resize and write if there's data
+                                    dset = f[dset_name]
+                                    current_size = dset.shape[0]
+                                    new_size_to_add = new_data.shape[0]
+                                    dset.resize(current_size + new_size_to_add, axis=0)
+                                    dset[current_size : current_size + new_size_to_add] = new_data
+                        
+                        # If not self.return_evals after saving, ensure x_points_for_return and y_points_for_return in return_tuple are empty.
+                        if not self.return_evals:
+                            return_tuple = (opt_result_tuple_to_send, self._guide_function_wrapper_calls, [], [], x0)
+                    
+                    comm.send(return_tuple, dest=0, tag=BinMinBottomUp.RESULT_TAG)
+
+        elif self.initial_optimizer == "differential_evolution":
+            from mpi4py.futures import MPICommExecutor
+
+            # Use the full input space during the initial optimization
+            bounds = [(bt[0], bt[1]) for bt in self.binning_tuples]
+
+            # Clear global lists on all ranks before MPICommExecutor
+            _x_points_per_rank = []
+            _y_points_per_rank = []
+            _g_points_per_rank = []
+            self._guide_function_wrapper_calls = 0  # Reset counter
+
+            with MPICommExecutor(comm, root=0) as executor:
+                if rank == 0:
+                    print(f"{self.print_prefix} rank {rank}: Running initial global optimization (differential_evolution)...", flush=True)
+                    use_initial_optimizer_kwargs = copy(self.initial_optimizer_kwargs)
+                    use_initial_optimizer_kwargs["updating"] = "deferred"
+                    use_initial_optimizer_kwargs["workers"] = executor.map
+
+                    # Run differential_evolution.
+                    # The result object itself is not directly used for initial_opt_results population later,
+                    # but its execution populates the global lists via _guide_function_wrapper.
+                    de_result = differential_evolution(
+                        self._guide_function_wrapper,
+                        bounds,
+                        args=self.args,
+                        **use_initial_optimizer_kwargs,
+                    )
+            
+            print(f"{self.print_prefix} rank {rank}: Evaluated {len(_x_points_per_rank)} points during the initial optimization (DE).", flush=True)
+
+
+            # Gather all points at rank 0
+            x_points_gathered = comm.gather(copy(_x_points_per_rank), root=0)
+            y_points_gathered = comm.gather(copy(_y_points_per_rank), root=0)
+            g_points_gathered = comm.gather(copy(_g_points_per_rank), root=0)
+            # Gather the call counts from each worker as well
+            guide_calls_gathered = comm.gather(self._guide_function_wrapper_calls, root=0)
+
+
+            if rank == 0:
+
+                # Flatten the lists
+                x_points = [x for sub_list in x_points_gathered for x in sub_list]
+                y_points = [y for sub_list in y_points_gathered for y in sub_list]
+                g_points = [g for sub_list in g_points_gathered for g in sub_list]
+                
+                # Sum guide calls from all ranks
+                n_target_calls_total += sum(guide_calls_gathered)
+
+                if self.return_evals or self.save_evals:
+                    x_evals_list.extend(x_points)
+                    y_evals_list.extend(y_points)
+                
+                # Find the best point (among all evaluated points)
+                if g_points:
+                    min_idx = np.argmin(g_points)
+                    g_min = g_points[min_idx]
+                    y_min = y_points[min_idx] 
+                else:
+                    g_min = np.inf
+                    y_min = np.inf
+
+                # Keep all points that are acceptable
+                n_pts = len(g_points)
+                keep_indices = []
+                for i in range(n_pts):
+                    y_i = y_points[i]
+                    g_i = g_points[i]
+
+                    # Check bin_check_function or acceptance criteria.
+                    # Need OptimizeResult for bin_check_function.
+                    current_opt_res = OptimizeResult(x=x_points[i], fun=y_i, guide_fun=g_i)
+                    if self.bin_check_function is not None:
+                        # The bin_check_function expects (OptimizeResult, x_evals, y_evals)
+                        # For initial points, we might not have per-point "evals" in the same way,
+                        # so using [x_points[i]] and [y_points[i]] as stand-ins.
+                        if self.bin_check_function(current_opt_res, [x_points[i]], [y_points[i]]):
+                            keep_indices.append(i)
+                    elif (    (y_i < self.accept_target_below)
+                         or (y_i - y_min < self.accept_delta_target_below) 
+                         or (g_i < self.accept_guide_below)
+                         or (g_i - g_min < self.accept_delta_guide_below) ):
+                        keep_indices.append(i)
+                
+                initial_opt_results = [(copy(x_points[i]), copy(y_points[i]), copy(g_points[i])) for i in keep_indices]
+
+            # Clear global lists on all ranks after processing (DE path)
+            _x_points_per_rank = []
+            _y_points_per_rank = []
+            _g_points_per_rank = []
+            self._guide_function_wrapper_calls = 0  # Reset counter
+
+            # Delete gathered lists to free memory (only rank 0 has the full lists)
+            if rank == 0:
+                del x_points_gathered
+                del y_points_gathered
+                del g_points_gathered
+                del guide_calls_gathered
+                if 'x_points' in locals(): del x_points
+                if 'y_points' in locals(): del y_points
+                if 'g_points' in locals(): del g_points
+
+        # Wait here
+        comm.Barrier()
+        
+        # Return results
+        return initial_opt_results, n_target_calls_total, x_evals_list, y_evals_list
+
+
+    @staticmethod
+    def generate_offsets(dim, distance):
+        # Generate all possible combinations for the given dimension.
+        for offset in product(range(-distance, distance + 1), repeat=dim):
+            # Skip the zero offset (which would be the input point itself).
+            if offset == (0,) * dim:
+                continue
+            if sum(abs(x) for x in offset) == distance:
+                yield offset
+
+
+    @staticmethod
+    def collect_n_neighbor_bins(input_bin, num_bins, n_dims, n_bins_per_dim_tuple):
+        new_bins = []
+        dim = len(input_bin)
+        # Start at Manhattan distance 1 and increase until we collect enough bins.
+        distance = 1
+        while len(new_bins) < num_bins:
+            # Generate all offsets for the current distance.
+            for offset in BinMinBottomUp.generate_offsets(dim, distance):
+                candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
+                candidate = np.maximum(candidate, np.zeros(n_dims, dtype=int))
+                candidate = np.minimum(candidate, np.array(n_bins_per_dim_tuple, dtype=int) - 1)
+                candidate = tuple(candidate.tolist())
+                new_bins.append(candidate)
+                if len(new_bins) == num_bins:
+                    break
+            distance += 1
+        return new_bins
+
+
+    @staticmethod
+    def collect_neighbor_bins_within_dist(input_bin, distance, n_dims, n_bins_per_dim_tuple):
+        new_bins = []
+        dim = len(input_bin)
+        # Generate all offsets for the current distance.
+        for offset in BinMinBottomUp.generate_offsets(dim, distance):
+            candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
+            candidate = np.maximum(candidate, np.zeros(n_dims, dtype=int))
+            candidate = np.minimum(candidate, np.array(n_bins_per_dim_tuple, dtype=int) - 1)
+            candidate = tuple(candidate.tolist())
+            new_bins.append(candidate)
+        return new_bins
 
 
     def _default_guide_function(self, x, y, *args):
         """Default guide function for the optimizer"""
         return y
+
+
+    def _guide_function_wrapper(self, x, *args):
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
+        self._guide_function_wrapper_calls += 1
+        y = self.target_function(x, *args)
+        g = self.guide_function(x, y, *args)
+        # if self.return_evals or self.save_evals:
+        _x_points_per_rank.append(copy(x))
+        _y_points_per_rank.append(copy(y))
+        _g_points_per_rank.append(copy(g))
+        # comm = MPI.COMM_WORLD
+        # rank = comm.Get_rank()
+        # print(f"rank {rank}: _guide_function_wrapper:  x = {x}  g = {g}  len(_g_points_per_rank) = {len(_g_points_per_rank)}", flush=True)
+        return g
 
 
     def _sampler_func(self, n, bounds):
@@ -142,8 +507,12 @@ class BinMinBottomUp(BinMinBase):
         if self.sampler == "random":
             sampled_points = x_lower_lims + np.random.random((n, self.n_dims)) * (x_upper_lims - x_lower_lims)
         elif self.sampler == "latinhypercube":
-            lh_sampler = LatinHypercube(d=self.n_dims)
-            sampled_points = x_lower_lims + lh_sampler.random(n=n) * (x_upper_lims - x_lower_lims)
+            sampler = LatinHypercube(d=self.n_dims)
+            sampled_points = x_lower_lims + sampler.random(n=n) * (x_upper_lims - x_lower_lims)
+        elif self.sampler == "sobol":
+            sampler = Sobol(d=self.n_dims, scramble=True, bits=30)
+            m = int(np.ceil(np.log2(n)))   # Find the smallest power m such that n <= 2^m
+            sampled_points = x_lower_lims + sampler.random_base2(m=m) * (x_upper_lims - x_lower_lims)
         elif self.sampler == "bincenter":
             bin_center = 0.5 * (x_lower_lims + x_upper_lims)
             sampled_points = np.array([bin_center])
@@ -157,6 +526,10 @@ class BinMinBottomUp(BinMinBase):
     def _worker_function(self, bin_index_tuple, eval_points=None, return_evals=False):
         """Function to optimize the target function within a set of bounds"""
 
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
+
         # Run user-defined set_eval_points function on this worker process?
         if (eval_points is None) and self.set_eval_points_from_worker:
             bounds = self.get_bin_limits(bin_index_tuple)
@@ -165,21 +538,10 @@ class BinMinBottomUp(BinMinBase):
         x_evals_collected = []
         y_evals_collected = []
 
-        x_points = []
-        y_points = []
-        g_points = []
-
-        # Wrapper for the guide function, to allow us to save the evaluations
-        def guide_function_wrapper(x, *args):
-            guide_function_wrapper.calls += 1
-            y = self.target_function(x, *args)
-            g = self.guide_function(x, y, *args)
-            # if self.return_evals or self.save_evals:
-            x_points.append(copy(x))
-            y_points.append(copy(y))
-            g_points.append(copy(g))
-            return g
-        guide_function_wrapper.calls = 0
+        _x_points_per_rank = []
+        _y_points_per_rank = []
+        _g_points_per_rank = []
+        self._guide_function_wrapper_calls = 0
 
         # If the evaluation points have already been decided, use them
         if eval_points is not None:
@@ -187,17 +549,17 @@ class BinMinBottomUp(BinMinBase):
             current_y_opt = np.inf
             current_g_opt = np.inf
             for x in eval_points:
-                g = guide_function_wrapper(x,*self.args)
+                g = self._guide_function_wrapper(x, *self.args)
                 if g < current_g_opt:
-                    current_x_opt = x_points[-1]
-                    current_y_opt = y_points[-1]
+                    current_x_opt = _x_points_per_rank[-1]
+                    current_y_opt = _y_points_per_rank[-1]
                     current_g_opt = g
             final_res = OptimizeResult(
                 x=current_x_opt,
                 fun=current_y_opt,
                 guide_fun=current_g_opt,
             )
-            return final_res, guide_function_wrapper.calls, x_points, y_points
+            return final_res, self.guide_function_wrapper.calls, copy(_x_points_per_rank), copy(_y_points_per_rank)
 
         # Since eval_points was not provided we proceed to generate points 
         # by sampling + optimization
@@ -219,17 +581,17 @@ class BinMinBottomUp(BinMinBase):
             current_y_opt = np.inf
             current_g_opt = np.inf
             for x in sampled_points:
-                g = guide_function_wrapper(x,*self.args)
+                g = self._guide_function_wrapper(x, *self.args)
                 if g < current_g_opt:
-                    current_x_opt = x_points[-1]
-                    current_y_opt = y_points[-1]
+                    current_x_opt = _x_points_per_rank[-1]
+                    current_y_opt = _y_points_per_rank[-1]
                     current_g_opt = g
             final_res = OptimizeResult(
                 x=current_x_opt,
                 fun=current_y_opt,
                 guide_fun=current_g_opt,
             )
-            return final_res, guide_function_wrapper.calls, x_points, y_points
+            return final_res, self._guide_function_wrapper_calls, copy(_x_points_per_rank), copy(_y_points_per_rank)
 
         # 
         # Do the optimization for each sampled point
@@ -242,7 +604,8 @@ class BinMinBottomUp(BinMinBase):
                 x[i] = fixed_pars[i]
             for j, i in enumerate(self.optimized_parameters):
                 x[i] = x_optimized_pars[j]
-            return guide_function_wrapper(x, *args)
+
+            return self._guide_function_wrapper(x, *args)
 
         final_res = None
         current_best_opt_pars = [self.get_bin_center(bin_index_tuple)[i] for i in self.optimized_parameters]
@@ -251,6 +614,8 @@ class BinMinBottomUp(BinMinBase):
             for x0 in sampled_points:
                 
                 fixed_pars = {i: x0[i] for i in self.sampled_parameters}
+
+                # TODO: Add more clever suggestions for optimiziation init point
 
                 if self.inherit_best_init_point_within_bin:
                     x0_opt_init = current_best_opt_pars
@@ -266,7 +631,7 @@ class BinMinBottomUp(BinMinBase):
                         use_optimizer_kwargs["method"] = "trust-constr"
                         res = minimize(wrapper_to_fix_pars, x0_opt_init, bounds=bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
                 elif self.optimizer == "differential_evolution":
-                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, **use_optimizer_kwargs)
+                    res = differential_evolution(wrapper_to_fix_pars, bounds_optimized_pars, args=self.args, x0=x0_opt_init, **use_optimizer_kwargs)
                 elif self.optimizer == "basinhopping":
                     from scipy.optimize import basinhopping
                     if not "minimizer_kwargs" in use_optimizer_kwargs:
@@ -313,9 +678,9 @@ class BinMinBottomUp(BinMinBase):
 
                 # The OptimizeResult.fun field should be the target function, so we create
                 # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
-                opt_index = np.argmin(g_points)
-                res.fun = copy(y_points[opt_index])
-                res.guide_fun = copy(g_points[opt_index])
+                opt_index = np.argmin(_g_points_per_rank)
+                res.fun = copy(_y_points_per_rank[opt_index])
+                res.guide_fun = copy(_g_points_per_rank[opt_index])
 
                 full_x_opt = np.zeros(self.n_dims)
                 full_x_opt[list(self.sampled_parameters)] = x0[list(self.sampled_parameters)]
@@ -331,12 +696,12 @@ class BinMinBottomUp(BinMinBase):
                     del(res.hess_inv)
 
                 if return_evals:
-                    x_evals_collected.extend(x_points)
-                    y_evals_collected.extend(y_points)
+                    x_evals_collected.extend(_x_points_per_rank)
+                    y_evals_collected.extend(_y_points_per_rank)
 
-                x_points = []
-                y_points = []
-                g_points = []
+                _x_points_per_rank = []
+                _y_points_per_rank = []
+                _g_points_per_rank = []
 
                 # Keep the best result from the repetitions
                 if final_res is None:
@@ -346,7 +711,7 @@ class BinMinBottomUp(BinMinBase):
                         final_res = res
                         current_best_opt_pars = [res.x[i] for i in self.optimized_parameters]
 
-        return final_res, guide_function_wrapper.calls, x_evals_collected, y_evals_collected
+        return final_res, self._guide_function_wrapper_calls, x_evals_collected, y_evals_collected
 
 
 
@@ -360,163 +725,84 @@ class BinMinBottomUp(BinMinBase):
           On other ranks: None.
         """
 
+        global _x_points_per_rank
+        global _y_points_per_rank
+        global _g_points_per_rank
+
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         size = comm.Get_size()
-        n_workers = size - 1
 
         # Wait here until all processes are ready.
         comm.Barrier()
 
-        TASK_TAG = 1
-        RESULT_TAG = 2
-        TERMINATE_TAG = 3
-
-
         # Set some flags
         callback_from_rank_0 = bool((self.callback is not None) and (self.callback_on_rank_0))
-        callback_from_worker = bool((self.callback is not None) and (not self.callback_on_rank_0))
+        # callback_from_worker is now defined in _worker_main_loop
 
 
         # 
-        # Step 1: Each worker finds a local minimum (from the full input space)
+        # Step 1: Initial global optimization
         #
 
+        # Initialize variables for initial optimization results.
+        # For ranks other than 0, these can be None initially, as they will be overwritten by broadcast.
+        # Rank 0 will define them properly either by calculation (if skipping) or from _perform_initial_optimization.
         if rank == 0:
-
+            initial_opt_results = []
             n_target_calls_total = 0
             x_evals_list = []
             y_evals_list = []
+        else:
+            initial_opt_results = None
+            n_target_calls_total = None
+            x_evals_list = None
+            y_evals_list = None
 
-            # Limits for the full input space
-            x_lower_lims = np.array([bt[0] for bt in self.binning_tuples])
-            x_upper_lims = np.array([bt[1] for bt in self.binning_tuples])
+        if self.skip_initial_optimization:
+            if rank == 0:
+                # Initialize local lists/counters for rank 0
+                initial_opt_results = []
+                n_target_calls_total = 0
+                x_evals_list = []
+                y_evals_list = []
 
-            # Use latin hypercube sampling to get starting points for initial optimization
-            lh_sampler = LatinHypercube(d=self.n_dims)
-            x0_points = list(x_lower_lims + lh_sampler.random(n=self.n_initial_points) * (x_upper_lims - x_lower_lims))
+                for point in self.initial_points:
+                    current_x = None
+                    y_val = np.inf
+                    g_val = np.inf
+                    if isinstance(point, tuple) and all(isinstance(item, int) for item in point):
+                        # Processing user-provided initial bin tuple.
+                        current_x = self.get_bin_center(point)
+                    elif hasattr(point, '__iter__') and not isinstance(point, str) and all(isinstance(item, (int, float)) for item in point):
+                        # Processing user-provided initial x-point.
+                        current_x = np.array(point)
+                        y_val = self.target_function(current_x, *self.args)
+                        n_target_calls_total += 1
+                        g_val = self.guide_function(current_x, y_val, *self.args)
+                        if self.return_evals or self.save_evals:
+                            x_evals_list.append(copy(current_x))
+                            y_evals_list.append(y_val)
+                    else:
+                        raise Exception(f"Invalid item in 'initial_points'. Expected bin tuple or x-point coordinates, got {point}")
+                    
+                    initial_opt_results.append((copy(current_x), y_val, g_val))
+            # else (rank != 0): initial_opt_results, etc., are already None
+        else:
+            # Perform initial optimization.
+            # This is called by ALL ranks. _perform_initial_optimization handles rank-specific logic internally.
+            res_tuple = self._perform_initial_optimization(comm, rank, self.n_workers)
+            if rank == 0:
+                initial_opt_results, n_target_calls_total, x_evals_list, y_evals_list = res_tuple
+            # else (rank != 0): Workers get res_tuple too, but rank 0's is canonical and will be broadcast.
 
-            # Use the full input space during the initial optimization
-            bounds = [(bt[0], bt[1]) for bt in self.binning_tuples]
-
-            # Send out optimization tasks
-            for i, x0 in enumerate(x0_points):
-                worker_rank = (i % n_workers) + 1
-                x0 = x0_points[i]
-                opt_task_tuple = (x0, bounds)
-                comm.send(opt_task_tuple, dest=worker_rank, tag=TASK_TAG)
-
-            # Listen for and collect results
-            initial_opt_results = []
-            while len(initial_opt_results) < self.n_initial_points:
-
-                # Block until any worker returns a result.
-                status = MPI.Status()
-                result = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
-                worker_rank = status.Get_source()
-
-                if result is None:
-                    raise Exception(f"{self.print_prefix} Initial optimization failed for rank {worker_rank}, starting from x0 = {x0}")
-
-                opt_result, n_target_calls, x_points, y_points, x0 = result
-                print(f"{self.print_prefix} rank {rank}: Initial optimization result from rank {worker_rank}, starting from x0 = {x0}  -->  x = {opt_result.x}, y = {opt_result.fun}, guide = {opt_result.guide_fun}", flush=True)
-
-                n_target_calls_total += n_target_calls
-                if self.return_evals or self.save_evals:
-                    x_evals_list.extend(x_points)
-                    y_evals_list.extend(y_points)
-
-                # Save optimization result
-                initial_opt_results.append(opt_result)
-
-            # Done with the initial optimizations, so stop all workers
-            for worker_rank in range(1, n_workers+1):
-                # print(f"{self.print_prefix} rank {rank}: Telling rank {worker_rank} we are done with the initial optimization.", flush=True)
-                comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
-
-        else: 
-            # Loop for workers listening for initial optimization tasks
-            while True:
-                status = MPI.Status()
-
-                # Wait here for a new message
-                data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
-                tag = status.Get_tag()
-
-                # Terminate?
-                if tag == TERMINATE_TAG or data is None:
-                    # print(f"{self.print_prefix} rank {rank}: No more initial optimization tasks for me.", flush=True)
-                    break
-
-                # Worker process: receive optimization task, perform it, and wait at barrier
-                x0, bounds = data
-
-                x_points = []
-                y_points = []
-                g_points = []
-
-                # Wrapper for the guide function, to allow us to save the evaluations
-                def guide_function_wrapper(x, *args):
-                    guide_function_wrapper.calls += 1
-                    y = self.target_function(x, *args)
-                    g = self.guide_function(x, y, *args)
-                    # if self.return_evals or self.save_evals:
-                    x_points.append(copy(x))
-                    y_points.append(copy(y))
-                    g_points.append(copy(g))
-                    return g
-                guide_function_wrapper.calls = 0
-
-                use_optimizer_kwargs = copy(self.optimizer_kwargs)
-                try:
-                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
-                except ValueError as e:
-                    warnings.warn(f"{self.print_prefix} scipy.optimize.minimize returned ValueError ({e}). Trying again with method='trust-constr'.", RuntimeWarning)
-                    use_optimizer_kwargs["method"] = "trust-constr"
-                    res = minimize(guide_function_wrapper, x0, bounds=bounds, args=self.args, **use_optimizer_kwargs)
-
-                # The OptimizeResult.fun field should be the target function, so we create
-                # a new field OptimizeResult.guide_fun for best-fit value of the guide function.
-                opt_index = np.argmin(g_points)
-                res.fun = copy(y_points[opt_index])
-                res.guide_fun = copy(g_points[opt_index])
-
-                if (not self.return_evals) and (not self.save_evals):
-                    x_points = []
-                    y_points = []
-                    g_points = []
-
-                return_tuple = (res, guide_function_wrapper.calls, x_points, y_points, x0)
-
-                if self.save_evals:
-                    import h5py
-                    hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
-                    hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
-                    with h5py.File(hdf5_filename, 'a') as f:
-                        for i,dset_name in enumerate(hdf5_dset_names):
-                            if dset_name in f:
-                                continue
-                            else:
-                                f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
-
-                            if dset_name[0] == "x":
-                                new_data = np.array(x_points)[:,i]
-                            elif dset_name == "y":
-                                new_data = np.array(y_points)
-                            dset = f[dset_name]
-                            current_size = dset.shape[0]
-                            new_size = new_data.shape[0]
-                            dset.resize(current_size + new_size, axis=0)
-                            dset[current_size: current_size + new_size] = new_data
-
-                        # Can we get rid of the x_points and y_points?
-                        if not self.return_evals:
-                            return_tuple = (res, guide_function_wrapper.calls, [], [], x0)
-
-                comm.send(return_tuple, dest=0, tag=RESULT_TAG)
-
-        # Wait here
-        # print(f"{self.print_prefix} rank {rank}: Waiting at barrier after step 1", flush=True)
+        # Broadcast initial optimization results from rank 0 to all other ranks.
+        initial_opt_results = comm.bcast(initial_opt_results if rank == 0 else None, root=0)
+        n_target_calls_total = comm.bcast(n_target_calls_total if rank == 0 else None, root=0)
+        x_evals_list = comm.bcast(x_evals_list if rank == 0 else None, root=0)
+        y_evals_list = comm.bcast(y_evals_list if rank == 0 else None, root=0)
+        
+        # Barrier to ensure all processes have received broadcasted data.
         comm.Barrier()
 
 
@@ -526,104 +812,65 @@ class BinMinBottomUp(BinMinBase):
 
         if rank == 0:
 
-            # Collect pairs (target value, bin tuple for best-fit point) in a sorted list
+            # TODO: This part can be simplified! Get rid of initial_opt_tuples?
+
+            # Collect pairs (guide function value, bin tuple for best-fit point) in a sorted list
             initial_opt_tuples = []
             current_global_ymin = np.inf
             current_global_gmin = np.inf
-            for res in initial_opt_results:
-                current_global_ymin = min(res.fun, current_global_ymin)
-                current_global_gmin = min(res.guide_fun, current_global_gmin)
-                g_val = res.guide_fun 
-                x_point = res.x
-                bin_index_tuple = self.get_bin_index_tuple(x_point)
-                add_pair = (g_val, bin_index_tuple)
+
+            # initial_opt_results is a list of (x, y, g) tuples from _perform_initial_optimization
+            for x_res, y_res, g_res in initial_opt_results:
+                current_global_ymin = min(y_res, current_global_ymin)
+                current_global_gmin = min(g_res, current_global_gmin)
+                bin_index_tuple = self.get_bin_index_tuple(x_res)
+                add_pair = (g_res, bin_index_tuple)
                 bisect.insort(initial_opt_tuples, add_pair)
 
             # Start constructing the initial set of tasks
             completed_tasks = 0
             ongoing_tasks = []
-            available_workers = list(range(1, n_workers+1)) 
+            available_workers = list(range(1, self.n_workers + 1))
             tasks = []
             planned_and_completed_tasks = set()
 
+            # Populate tasks from the sorted initial_opt_tuples (bins containing initial optima)
             for g_val, bin_index_tuple in initial_opt_tuples:
                 if bin_index_tuple not in planned_and_completed_tasks:
                     planned_and_completed_tasks.add(bin_index_tuple)
                     tasks.append(bin_index_tuple)
+            
+            print(f"{self.print_prefix} rank {rank}: Growing bins from {len(planned_and_completed_tasks)} initial bins.", flush=True)
 
-            if len(tasks) == 0:
+            # No tasks? Stop all workers and raise exception
+            if not tasks:
+                for worker_rank_terminate in range(1, self.n_workers + 1):
+                    comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
                 raise Exception(f"{self.print_prefix} No optimization tasks identified after the initial optimization. Either the initial optimization failed, or this is a bug.")
 
-            # Now we want to add more tasks by collecting neighbors 
-            # First some helper functions
-
-            # Helper function #1 
-            def generate_offsets(dim, distance):
-                # Generate all possible combinations for the given dimension.
-                for offset in product(range(-distance, distance + 1), repeat=dim):
-                    # Skip the zero offset (which would be the input point itself).
-                    if offset == (0,) * dim:
-                        continue
-                    if sum(abs(x) for x in offset) == distance:
-                        yield offset
-
-
-            # Helper function #2
-            def collect_n_neighbor_bins(input_bin, num_bins):
-                new_bins = []
-                dim = len(input_bin)
-                # Start at Manhattan distance 1 and increase until we collect enough bins.
-                distance = 1
-                while len(new_bins) < num_bins:
-                    # Generate all offsets for the current distance.
-                    for offset in generate_offsets(dim, distance):
-                        candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
-                        candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
-                        candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                        candidate = tuple(candidate.tolist())
-                        new_bins.append(candidate)
-                        if len(new_bins) == num_bins:
-                            break
-                    distance += 1
-                return new_bins
-
-
-            # Helper function #3
-            def collect_neighbor_bins_within_dist(input_bin, distance):                
-                new_bins = []
-                dim = len(input_bin)
-                # Generate all offsets for the current distance.
-                for offset in generate_offsets(dim, distance):
-                    candidate = np.array([input_bin[i] + offset[i] for i in range(dim)], dtype=int)
-                    candidate = np.maximum(candidate, np.zeros(self.n_dims, dtype=int))
-                    candidate = np.minimum(candidate, np.array(self.n_bins_per_dim, dtype=int) - 1)
-                    candidate = tuple(candidate.tolist())
-                    new_bins.append(candidate)
-                return new_bins
-
-
-            # Collect some more initial tasks around the current best-fit
-            if len(tasks) < n_workers:
-                new_bin_tuples = collect_n_neighbor_bins(initial_opt_tuples[0][1], n_workers - len(tasks))
+            # Now we want to add more tasks by collecting neighbors
+            # Collect some more initial tasks around the current best-fit if not enough tasks for workers
+            if len(tasks) < self.n_workers and initial_opt_tuples:
+                # initial_opt_tuples is sorted by g_val, so initial_opt_tuples[0][1] is the bin of the best initial optimum
+                best_initial_bin_tuple = initial_opt_tuples[0][1]
+                num_additional_tasks_needed = self.n_workers - len(tasks)
+                new_bin_tuples = BinMinBottomUp.collect_n_neighbor_bins(
+                    best_initial_bin_tuple, 
+                    num_additional_tasks_needed, 
+                    self.n_dims, 
+                    self.n_bins_per_dim
+                )
                 for new_bin_index_tuple in new_bin_tuples:
                     if new_bin_index_tuple not in planned_and_completed_tasks:
                         planned_and_completed_tasks.add(new_bin_index_tuple)
                         tasks.append(new_bin_index_tuple)
 
-
             # Send out initial batches of tasks
             while tasks and available_workers:
-                worker_rank = available_workers.pop(0)
-                use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
-                batch = tuple(tasks[0:use_batch_size])
-                eval_points_per_task = [None] * use_batch_size
-                if self.set_eval_points_from_rank_0:
-                    for i, bin_index_tuple in enumerate(batch):
-                        bounds = self.get_bin_limits(bin_index_tuple)
-                        eval_points_per_task[i] = self.set_eval_points(bin_index_tuple, bounds)
-                comm.send((batch, eval_points_per_task), dest=worker_rank, tag=TASK_TAG)
-                tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
-                ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
+                worker_rank_pop = available_workers.pop(0)
+                batch = self._send_task_batch_to_worker(comm, worker_rank_pop, tasks)
+                tasks = tasks[len(batch):]
+                ongoing_tasks.extend(batch)
 
 
         #
@@ -631,15 +878,13 @@ class BinMinBottomUp(BinMinBase):
         #
 
         if rank == 0:
-
             # Prepare some containers
             all_bin_results = []
             bin_tuples = []
-            bin_centers = []
             x_optimal_per_bin = []
             y_optimal_per_bin = []
-            # The other containers (x_evals_list, y_evals_list, 
-            # n_target_calls_total) where created during step 1 
+            # The other containers (x_evals_list, y_evals_list, n_target_calls_total)
+            # were initialized by or received from _perform_initial_optimization
 
             x_opt = []
             y_opt = [float('inf')]
@@ -647,6 +892,18 @@ class BinMinBottomUp(BinMinBase):
 
             print_counter = 0
             while completed_tasks < self.max_n_bins:
+                # Task loading from file? 
+                if not tasks and self.task_dump_file and os.path.exists(self.task_dump_file):
+                    print(f"{self.print_prefix} rank {rank}: Loading tasks from {self.task_dump_file}", flush=True)
+                    try:
+                        with open(self.task_dump_file, 'r') as f:
+                            for line in f:
+                                tasks.append(tuple(json.loads(line)))
+                        os.remove(self.task_dump_file)
+                        print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks from {self.task_dump_file} and deleted file.", flush=True)
+                    except Exception as e:
+                        warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file}: {e}", RuntimeWarning)
+
                 print_counter += 1
 
                 status = MPI.Status()
@@ -656,7 +913,7 @@ class BinMinBottomUp(BinMinBase):
                     print_counter = 0
 
                 # Block until any worker returns a result.
-                data = comm.recv(source=MPI.ANY_SOURCE, tag=RESULT_TAG, status=status)
+                data = comm.recv(source=MPI.ANY_SOURCE, tag=BinMinBottomUp.RESULT_TAG, status=status)
                 worker_rank = status.Get_source()
                 available_workers.append(worker_rank)
 
@@ -669,7 +926,9 @@ class BinMinBottomUp(BinMinBase):
                         if (opt_result.fun < np.min(y_opt)) and (not math.isclose(opt_result.fun, np.min(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol)):
                             x_opt = [opt_result.x]
                             y_opt = [opt_result.fun]
-                            optimal_bins = [bin_index_tuple]
+                            # _Anders
+                            # optimal_bins = [bin_index_tuple]
+                            optimal_bins = [current_bin_index_tuple]
                         elif math.isclose(opt_result.fun, np.mean(y_opt), rel_tol=self.optima_comparison_rtol, abs_tol=self.optima_comparison_atol):
                             x_opt.append(opt_result.x)
                             y_opt.append(opt_result.fun)
@@ -708,40 +967,82 @@ class BinMinBottomUp(BinMinBase):
                                 nice_neighborhood = True
 
                         if nice_neighborhood:
-                            new_bin_tuples = collect_neighbor_bins_within_dist(current_bin_index_tuple, self.neighborhood_distance)
+                            new_bin_tuples = BinMinBottomUp.collect_neighbor_bins_within_dist(current_bin_index_tuple, self.neighborhood_distance, self.n_dims, self.n_bins_per_dim)
 
+                            # Task Dumping: Before adding new tasks
+                            if self.task_dump_file and (len(tasks) + len(new_bin_tuples)) > self.max_tasks_in_memory:
+                                if tasks: # Only dump if there are tasks to dump
+                                    print(f"{self.print_prefix} rank {rank}: Dumping {len(tasks)} tasks to {self.task_dump_file}", flush=True)
+                                    try:
+                                        with open(self.task_dump_file, 'a') as f:
+                                            for task_tuple in tasks:
+                                                f.write(json.dumps(task_tuple) + '\n')
+                                        tasks.clear()
+                                        print(f"{self.print_prefix} rank {rank}: Dumped tasks and cleared in-memory list.", flush=True)
+                                    except Exception as e:
+                                        warnings.warn(f"{self.print_prefix} rank {rank}: Error dumping tasks to {self.task_dump_file}: {e}", RuntimeWarning)
+                            
                             # TODO: Can implement an upper bound on the number of planned tasks here
-                            if len(tasks) < np.inf:
-                                for bin_index_tuple in new_bin_tuples:
+                            if len(tasks) < np.inf: # This condition might always be true if tasks are dumped
+                                for bin_index_tuple_to_add in new_bin_tuples:
                                     if len(planned_and_completed_tasks) >= self.max_n_bins:
                                         print(f"{self.print_prefix} rank {rank}: Will not plan more tasks due to the limit max_n_bins = {self.max_n_bins}", flush=True)
                                         break
-                                    if bin_index_tuple not in planned_and_completed_tasks:
-                                        planned_and_completed_tasks.add(bin_index_tuple)
-                                        tasks.append(bin_index_tuple)
+                                    if bin_index_tuple_to_add not in planned_and_completed_tasks:
+                                        planned_and_completed_tasks.add(bin_index_tuple_to_add)
+                                        tasks.append(bin_index_tuple_to_add)
 
                 # Now send out as many new tasks as possible
                 while tasks and available_workers:
                     worker_rank = available_workers.pop(0)
-                    use_batch_size = max(1, min(int(np.round(len(tasks) / n_workers)), self.n_tasks_per_batch))
-                    batch = tuple(tasks[0:use_batch_size])
-                    eval_points_per_task = [None] * use_batch_size
-                    if self.set_eval_points_from_rank_0:
-                        for i, bin_index_tuple in enumerate(batch):
-                            bounds = self.get_bin_limits(bin_index_tuple)
-                            eval_points_per_task[i] = self.set_eval_points(bin_index_tuple, bounds)
-                    comm.send((batch, eval_points_per_task), dest=worker_rank, tag=TASK_TAG)
-                    tasks = tasks[len(batch):]  # Chop away the tasks that go into the batch
-                    ongoing_tasks.extend(batch)  # Add all the tasks in batch to the ongoing_tasks list
+                    batch = self._send_task_batch_to_worker(comm, worker_rank, tasks)
+                    tasks = tasks[len(batch):]
+                    ongoing_tasks.extend(batch)
+
+                    # Task loading: If tasks list becomes empty after sending a batch
+                    if not tasks and self.task_dump_file and os.path.exists(self.task_dump_file):
+                        print(f"{self.print_prefix} rank {rank}: Loading tasks from {self.task_dump_file} (mid-loop)", flush=True)
+                        try:
+                            with open(self.task_dump_file, 'r') as f:
+                                for line in f:
+                                    tasks.append(tuple(json.loads(line)))
+                            os.remove(self.task_dump_file)
+                            print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks from {self.task_dump_file} and deleted file (mid-loop).", flush=True)
+                        except Exception as e:
+                            warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file} (mid-loop): {e}", RuntimeWarning)
+
 
                 # No more work to do? Break out of while loop
                 if (not tasks) and (not ongoing_tasks):
-                    break
+                    # Final check for any tasks dumped to file before breaking
+                    if self.task_dump_file and os.path.exists(self.task_dump_file):
+                        print(f"{self.print_prefix} rank {rank}: Loading remaining tasks from {self.task_dump_file} before exiting main loop.", flush=True)
+                        try:
+                            with open(self.task_dump_file, 'r') as f:
+                                for line in f:
+                                    tasks.append(tuple(json.loads(line)))
+                            os.remove(self.task_dump_file)
+                            print(f"{self.print_prefix} rank {rank}: Loaded {len(tasks)} tasks. Proceeding to send if any workers become available or exiting.", flush=True)
+                            # Attempt to send these loaded tasks if workers are available
+                            while tasks and available_workers:
+                                worker_rank = available_workers.pop(0)
+                                batch = self._send_task_batch_to_worker(comm, worker_rank, tasks)
+                                tasks = tasks[len(batch):]
+                                ongoing_tasks.extend(batch)
+
+                            if (not tasks) and (not ongoing_tasks): # If all loaded tasks are dispatched or no workers
+                                break
+                        except Exception as e:
+                            warnings.warn(f"{self.print_prefix} rank {rank}: Error loading tasks from {self.task_dump_file} before exiting: {e}", RuntimeWarning)
+                            break # Break if error during final load
+                    else: # No dump file, truly no more tasks
+                        break
+
 
             # Done with the given number of tasks, so stop all workers
-            for worker_rank in range(1, n_workers+1):
-                # print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank}", flush=True)
-                comm.send(None, dest=worker_rank, tag=TERMINATE_TAG)
+            for worker_rank_terminate in range(1, self.n_workers+1):
+                # print(f"{self.print_prefix} rank {rank}: Sending termination signal to rank {worker_rank_terminate}", flush=True)
+                comm.send(None, dest=worker_rank_terminate, tag=BinMinBottomUp.TERMINATE_TAG)
 
 
             # 
@@ -760,7 +1061,7 @@ class BinMinBottomUp(BinMinBase):
                 for i, bin_index_tuple in enumerate(bin_tuples):
                     bin_centers[i] = self.get_bin_center(bin_index_tuple)
 
-            # Construct outptu dict
+            # Construct output dict
             output = {
                 "x_optimal": x_opt,
                 "y_optimal": y_opt,
@@ -774,106 +1075,115 @@ class BinMinBottomUp(BinMinBase):
                 "x_evals": x_evals,
                 "y_evals": y_evals,
             }
-
-
-        #
-        # Worker process
-        #
-
+        # All worker processes go directly to _worker_main_loop
         else:
-            # Worker process: receive bins to optimize until termination signal is received.
-            rank = comm.Get_rank()
-            status = MPI.Status()
+            output = self._worker_main_loop(comm, rank, callback_from_rank_0)
 
-            # Prepare output file
-            if self.save_evals:
-                import h5py
-                hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
-                hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
-                with h5py.File(hdf5_filename, 'a') as f:
-                    for dset_name in hdf5_dset_names:
-                        if dset_name in f:
-                            continue
-                        else:
-                            f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
-
-            # Main worker loop
-            while True:
-
-                # Wait here for a new message
-                data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
-                tag = status.Get_tag()
-
-                # Terminate?
-                if tag == TERMINATE_TAG or data is None:
-                    print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
-                    break
-
-                # Do the tasks in the batch
-                batch, eval_points_per_task = data
-                results = []
-                x_evals_collected = []
-                y_evals_collected = []
-                for task_i, bin_index_tuple in enumerate(batch):
-
-                    eval_points = eval_points_per_task[task_i]
-
-                    # Run the worker function for this bin
-                    result = self._worker_function(bin_index_tuple, eval_points=eval_points, return_evals=True)
-
-                    # Extract results
-                    opt_result, n_target_calls, x_evals, y_evals = result    
-                    opt_result.guide_fun = self.guide_function(opt_result.x, opt_result.fun, *self.args)
-                    
-                    # Run callback function on worker process?
-                    if callback_from_worker:
-                        self.callback(opt_result, x_evals, y_evals)
-
-                    # Check if this bin is interesting according to the user-defined bin_check_function
-                    user_bin_check = None
-                    if self.bin_check_function is not None:
-                        user_bin_check = self.bin_check_function(opt_result, x_evals, y_evals)
-
-                    # Append bin result to results list
-                    if self.save_evals:
-                        x_evals_collected.extend(x_evals)
-                        y_evals_collected.extend(y_evals)
-
-                    # Can we get rid of the data points now?
-                    if (not self.return_evals) and (not callback_from_rank_0):
-                        x_evals = []
-                        y_evals = []
-
-                    # Append bin result to results list
-                    return_result = (opt_result, n_target_calls, x_evals, y_evals)
-                    results.append((bin_index_tuple, return_result, user_bin_check))
-
-                # Write to file
-                if self.save_evals:
-                    with h5py.File(hdf5_filename, 'a') as f:
-                        for i,dset_name in enumerate(hdf5_dset_names):
-                            if dset_name[0] == "x":
-                                new_data = np.array(x_evals_collected)[:,i]
-                            elif dset_name == "y":
-                                new_data = np.array(y_evals_collected)
-                            dset = f[dset_name]
-                            current_size = dset.shape[0]
-                            new_size = new_data.shape[0]
-                            dset.resize(current_size + new_size, axis=0)
-                            dset[current_size: current_size + new_size] = new_data
-    
-                # Send back results for the entire batch
-                # print(f"{self.print_prefix} rank {rank}: Bin {bin_index_tuple} is done. Best point: x = {result[0].x}, y = {result[0].fun}", flush=True)
-                comm.send(results, dest=0, tag=RESULT_TAG)
-
-            # This MPI process is done now
-            output = None
-
-
-
-        # All together now
+        # Wait for everyone before returning
         # print(f"{self.print_prefix} rank {rank}: Waiting at the final barrier", flush=True)
         comm.Barrier()
         return output
 
 
+    def _send_task_batch_to_worker(self, comm, worker_rank, tasks):
+        """Sends a batch of tasks to a specified worker."""
+        use_batch_size = max(1, min(int(np.round(len(tasks) / self.n_workers)), self.n_tasks_per_batch))
+        batch = tuple(tasks[0:use_batch_size])
+        eval_points_per_task = [None] * use_batch_size
+        if self.set_eval_points_from_rank_0:
+            for i_batch_item, bin_index_tuple_item in enumerate(batch):
+                bounds = self.get_bin_limits(bin_index_tuple_item)
+                eval_points_per_task[i_batch_item] = self.set_eval_points(bin_index_tuple_item, bounds)
+        comm.send((batch, eval_points_per_task), dest=worker_rank, tag=BinMinBottomUp.TASK_TAG)
+        return batch
+
+
+    def _worker_main_loop(self, comm, rank, callback_from_rank_0):
+        """Main loop for worker processes."""
+        # MPI tags are now class attributes (TASK_TAG, RESULT_TAG, TERMINATE_TAG)
+
+        callback_from_worker = bool((self.callback is not None) and (not self.callback_on_rank_0))
+        status = MPI.Status()
+
+        # Prepare output file
+        if self.save_evals:
+            import h5py
+            hdf5_filename = f"binminpy_output_rank_{rank}.hdf5"
+            hdf5_dset_names = [f"x{i}" for i in range(self.n_dims)] + ["y"]
+            with h5py.File(hdf5_filename, 'a') as f:
+                for dset_name in hdf5_dset_names:
+                    if dset_name in f:
+                        continue
+                    else:
+                        f.create_dataset(dset_name, shape=(0,), maxshape=(None,), chunks=True)
+
+        # Main worker loop
+        while True:
+            # Wait here for a new message
+            data = comm.recv(source=0, tag=MPI.ANY_TAG, status=status)
+            tag = status.Get_tag()
+
+            # Terminate?
+            if tag == BinMinBottomUp.TERMINATE_TAG or data is None:
+                print(f"{self.print_prefix} rank {rank}: Received termination signal", flush=True)
+                break
+
+            # Do the tasks in the batch
+            batch, eval_points_per_task = data
+            results = []
+            x_evals_collected = []
+            y_evals_collected = []
+            for task_i, bin_index_tuple in enumerate(batch):
+                eval_points = eval_points_per_task[task_i]
+
+                # Run the worker function for this bin
+                result = self._worker_function(bin_index_tuple, eval_points=eval_points, return_evals=True)
+
+                # Extract results
+                opt_result, n_target_calls, x_evals, y_evals = result    
+                opt_result.guide_fun = self.guide_function(opt_result.x, opt_result.fun, *self.args)
+                
+                # Run callback function on worker process?
+                if callback_from_worker:
+                    self.callback(opt_result, x_evals, y_evals)
+
+                # Check if this bin is interesting according to the user-defined bin_check_function
+                user_bin_check = None
+                if self.bin_check_function is not None:
+                    user_bin_check = self.bin_check_function(opt_result, x_evals, y_evals)
+
+                # Append bin result to results list
+                if self.save_evals:
+                    x_evals_collected.extend(x_evals)
+                    y_evals_collected.extend(y_evals)
+
+                # Can we get rid of the data points now?
+                # Note: callback_from_rank_0 is passed as an argument
+                if (not self.return_evals) and (not callback_from_rank_0):
+                    x_evals = []
+                    y_evals = []
+
+                # Append bin result to results list
+                return_result = (opt_result, n_target_calls, x_evals, y_evals)
+                results.append((bin_index_tuple, return_result, user_bin_check))
+
+            # Write to file
+            if self.save_evals:
+                with h5py.File(hdf5_filename, 'a') as f:
+                    for i,dset_name in enumerate(hdf5_dset_names):
+                        if dset_name[0] == "x":
+                            new_data = np.array(x_evals_collected)[:,i]
+                        elif dset_name == "y":
+                            new_data = np.array(y_evals_collected)
+                        dset = f[dset_name]
+                        current_size = dset.shape[0]
+                        new_size = new_data.shape[0]
+                        dset.resize(current_size + new_size, axis=0)
+                        dset[current_size: current_size + new_size] = new_data
+    
+            # Send back results for the entire batch
+            comm.send(results, dest=0, tag=BinMinBottomUp.RESULT_TAG)
+
+        # This MPI process is done now
+        output = None
+        return output

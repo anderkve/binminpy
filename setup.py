@@ -19,6 +19,9 @@ setup(
     install_requires=[
         "numpy>=1.25.2",
         "scipy>=1.9.3",
+        "h5py>=3.13.0",
+        "mpi4py>=4.0.3",
+        "matplotlib>=3.10.1"
     ],
     extras_require={
         'iminuit': ['iminuit>=2.23.0'],
