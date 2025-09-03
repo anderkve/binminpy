@@ -713,64 +713,61 @@ class BinMinProfiler:
                 f.write(f"{param_str}, {logL:.6e}\n")
         self.samples_buffer = []
 
+def _log_sum_exp(a, b):
+    c = np.maximum(a, b)
+    return c + np.log(np.exp(a - c) + np.exp(b - c))
+
+class _BimodalGaussianLikelihood:
+    def __init__(self):
+        self.MU1 = np.array([2.5, 2.5, 2.5, 2.5])
+        self.INV_COV1 = np.linalg.inv(np.diag([1.0, 1.0, 1.0, 1.0]))
+        self.MU2 = np.array([7.0, 7.5, 7.0, 7.5])
+        self.INV_COV2 = np.linalg.inv(np.array([[0.8, 0.6, 0.0, 0.0], [0.6, 0.8, 0.0, 0.0], [0.0, 0.0, 0.5, 0.3], [0.3, 0.0, 0.3, 0.5]]))
+
+    def __call__(self, params):
+        diff1 = params - self.MU1
+        log_pdf1 = -0.5 * diff1.T @ self.INV_COV1 @ diff1
+        diff2 = params - self.MU2
+        log_pdf2 = -0.5 * diff2.T @ self.INV_COV2 @ diff2
+        return _log_sum_exp(log_pdf1, log_pdf2 + 0.5)
+
+def _rosenbrock_4d_likelihood(params):
+    return -0.1 * np.sum(100.0 * (params[1:] - params[:-1]**2.0)**2.0 + (1 - params[:-1])**2.0)
+
+def _correlated_modes_likelihood(params):
+    x1, x2, x3, x4 = params
+    H_A = -0.1 * ((x1 - 8)**2 + (x2 - 8)**2)
+    H_B = -0.1 * ((x1 - 2)**2 + (x2 - 2)**2)
+    L_A = H_A - 0.5 * ((x3 - 2)**2 + (x4 - 2)**2)
+    L_B = H_B - 0.5 * ((x3 - 8)**2 + (x4 - 8)**2)
+    return _log_sum_exp(L_A, L_B)
+
+def _himmelblau_4d_likelihood(params):
+    x1, x2, x3, x4 = params
+    term1 = (x1**2 + x2 - 11)**2 + (x1 + x2**2 - 7)**2
+    term2 = (x3**2 + x4 - 11)**2 + (x3 + x4**2 - 7)**2
+    scale = 0.05
+    return -1 * scale * (term1 + term2)
+
 def get_test_function(name):
     """Factory function to get a test likelihood, its bounds, and true peaks."""
     if name == "bimodal_gaussian":
-        MU1 = np.array([2.5, 2.5, 2.5, 2.5])
-        INV_COV1 = np.linalg.inv(np.diag([1.0, 1.0, 1.0, 1.0]))
-        MU2 = np.array([7.0, 7.5, 7.0, 7.5])
-        INV_COV2 = np.linalg.inv(np.array([[0.8, 0.6, 0.0, 0.0], [0.6, 0.8, 0.0, 0.0], [0.0, 0.0, 0.5, 0.3], [0.3, 0.0, 0.3, 0.5]]))
-
-        def log_sum_exp(a, b):
-            c = np.maximum(a, b)
-            return c + np.log(np.exp(a - c) + np.exp(b - c))
-
-        def likelihood(params):
-            diff1 = params - MU1
-            log_pdf1 = -0.5 * diff1.T @ INV_COV1 @ diff1
-            diff2 = params - MU2
-            log_pdf2 = -0.5 * diff2.T @ INV_COV2 @ diff2
-            return log_sum_exp(log_pdf1, log_pdf2 + 0.5)
-
+        likelihood = _BimodalGaussianLikelihood()
         bounds = [[0, 10], [0, 10], [0, 10], [0, 10]]
-        peaks = [MU1, MU2]
+        peaks = [likelihood.MU1, likelihood.MU2]
         return likelihood, bounds, peaks
 
     elif name == "rosenbrock_4D":
-        def likelihood(params):
-            return -0.1 * np.sum(100.0 * (params[1:] - params[:-1]**2.0)**2.0 + (1 - params[:-1])**2.0)
-
         bounds = [[-5, 5], [-5, 5], [-5, 5], [-5, 5]]
         peaks = [np.array([1.0, 1.0, 1.0, 1.0])]
-        return likelihood, bounds, peaks
+        return _rosenbrock_4d_likelihood, bounds, peaks
 
     elif name == "correlated_modes":
-        def log_sum_exp(a, b):
-            c = np.maximum(a, b)
-            return c + np.log(np.exp(a - c) + np.exp(b - c))
-
-        def likelihood(params):
-            x1, x2, x3, x4 = params
-            H_A = -0.1 * ((x1 - 8)**2 + (x2 - 8)**2)
-            H_B = -0.1 * ((x1 - 2)**2 + (x2 - 2)**2)
-
-            L_A = H_A - 0.5 * ((x3 - 2)**2 + (x4 - 2)**2)
-            L_B = H_B - 0.5 * ((x3 - 8)**2 + (x4 - 8)**2)
-
-            return log_sum_exp(L_A, L_B)
-
         bounds = [[0, 10], [0, 10], [0, 10], [0, 10]]
         peaks = [np.array([2, 2, 8, 8]), np.array([8, 8, 2, 2])]
-        return likelihood, bounds, peaks
+        return _correlated_modes_likelihood, bounds, peaks
 
     elif name == "himmelblau_4d":
-        def likelihood(params):
-            x1, x2, x3, x4 = params
-            term1 = (x1**2 + x2 - 11)**2 + (x1 + x2**2 - 7)**2
-            term2 = (x3**2 + x4 - 11)**2 + (x3 + x4**2 - 7)**2
-            scale = 0.05
-            return -1 * scale * (term1 + term2)
-
         bounds = [[-6, 6], [-6, 6], [-6, 6], [-6, 6]]
         peaks = [
             np.array([3.0, 2.0, 3.0, 2.0]),
@@ -778,7 +775,7 @@ def get_test_function(name):
             np.array([-3.779310, -3.283186, -3.779310, -3.283186]),
             np.array([3.584428, -1.848126, 3.584428, -1.848126])
         ]
-        return likelihood, bounds, peaks
+        return _himmelblau_4d_likelihood, bounds, peaks
 
     else:
         raise ValueError(f"Unknown test function: {name}")
