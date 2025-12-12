@@ -25,34 +25,36 @@ class BinMinBottomUp(BinMinBase):
     RESULT_TAG = 2
     TERMINATE_TAG = 3
 
-    def __init__(self, target_function, binning_tuples, args=(), 
-                 guide_function=None, bin_check_function=None, 
+    def __init__(self, target_function, binning_tuples, args=(),
+                 guide_function=None, bin_check_function=None,
                  callback=None, callback_on_rank_0=True,
-                 sampler="latinhypercube", 
+                 sampler="latinhypercube",
                  optimizer="minimize", optimizer_kwargs={},
-                 sampled_parameters=(), 
+                 sampled_parameters=(),
                  set_eval_points=None, set_eval_points_on_rank_0=True,
                  initial_optimizer="minimize", n_initial_points=10,
-                 initial_optimizer_kwargs={}, 
+                 initial_optimizer_kwargs={},
                  n_sampler_points_per_bin=10,
                  inherit_best_init_point_within_bin=False,
                  accept_target_below=np.inf, accept_delta_target_below=np.inf,
                  accept_guide_below=np.inf, accept_delta_guide_below=np.inf,
-                 save_evals=False, return_evals=False, 
-                 return_bin_results=True, return_bin_centers=True, 
+                 save_evals=False, return_evals=False,
+                 return_bin_results=True, return_bin_centers=True,
                  optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
                  neighborhood_distance=1,
-                 n_optim_restarts_per_bin=1, n_tasks_per_batch=1, 
+                 n_optim_restarts_per_bin=1, n_tasks_per_batch=1,
                  print_progress_every_n_batch=100,
                  max_tasks_per_worker=np.inf, max_n_bins=np.inf,
                  max_tasks_in_memory=np.inf, task_dump_file=None,
                  skip_initial_optimization=False, initial_points=None,
+                 comm=None,
                  ):
         """Constructor."""
 
         self.print_prefix = "BinMinBottomUp:"
 
-        comm = MPI.COMM_WORLD
+        self.comm = comm if comm is not None else MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
         self.n_workers = size - 1
@@ -729,7 +731,7 @@ class BinMinBottomUp(BinMinBase):
         global _y_points_per_rank
         global _g_points_per_rank
 
-        comm = MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
 
