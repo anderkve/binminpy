@@ -10,13 +10,14 @@ from binminpy.BinMin import BinMin
 
 class BinMinMPI(BinMin):
 
-    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={}, 
+    def __init__(self, target_function, binning_tuples, optimizer="minimize", optimizer_kwargs={},
                  return_evals=False, return_bin_results=True, return_bin_centers=True, optima_comparison_rtol=1e-9, optima_comparison_atol=0.0,
-                 n_restarts_per_bin=1, task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf, 
-                 bin_masking=None, options={}):
+                 n_restarts_per_bin=1, task_distribution="even", n_tasks_per_batch=1, max_tasks_per_worker=np.inf,
+                 bin_masking=None, options={}, comm=None):
         """Constructor."""
 
-        comm = MPI.COMM_WORLD
+        self.comm = comm if comm is not None else MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
 
@@ -69,7 +70,7 @@ class BinMinMPI(BinMin):
         """
 
         """Distribute the optimization tasks via MPI and collect results on rank 0."""
-        comm = MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
 
@@ -173,7 +174,7 @@ class BinMinMPI(BinMin):
           On rank 0: a dictionary containing global optimization results.
           On other ranks: None.
         """
-        comm = MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
 
@@ -316,7 +317,7 @@ class BinMinMPI(BinMin):
         """
         from scipy.stats.qmc import LatinHypercube
 
-        comm = MPI.COMM_WORLD
+        comm = self.comm
         rank = comm.Get_rank()
         size = comm.Get_size()
 
